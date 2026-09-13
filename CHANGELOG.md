@@ -5,6 +5,33 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] — 2026-09-14
+
+### Fixed
+
+- **The model pool could not follow a changed provider model list or subagent route policy.**
+  Reported from a real deployment. Two defects produced the same symptom, and each hid the other.
+  Discovery ran only when the pool was **empty**, so it effectively ran once per process: neither a
+  provider's new model list nor the deployment's subagent route policy emits the host's
+  adapter-topology event, so both were invisible until a restart. And while the `/state` route has
+  supported `?force=1` — with its own passing tests — the panel's **Refresh** never sent it, so the
+  one control that looked like a fix re-read the same cached snapshot. Now: the provider-id set is
+  compared on every call (a synchronous registry read, so an adapter appearing or disappearing is
+  caught even if the host's event is missed), a discovery older than five minutes is re-read lazily,
+  and the panel's Refresh actually forces one. A stale re-read that fails keeps the pool that already
+  exists — a provider being slow or offline must degrade routing, never break the call that tripped
+  the timer.
+- **A route allow/deny change did not re-narrow the pool.** The filter ran only inside a discovery,
+  so after changing it the panel kept showing the previous sets while routing already used the new
+  ones. The pool now keeps what the registry advertised, and a configuration write re-applies the
+  filter to it — free, because re-filtering needs no provider call.
+
+### Changed
+
+- **The README's discovery row was false and now is not.** It claimed discovery happens "whenever the
+  adapter topology changes", which was true only for the one case the host emits an event for, and
+  silent about the pool having no other freshness trigger at all.
+
 ## [0.2.4] — 2026-09-14
 
 ### Changed
@@ -655,6 +682,7 @@ Initial release. Generic, domain-agnostic Model Orchestrator for DSH `0.1.5-rc.1
 - Only `spawn` and `fork` subagent providers are consulted; any registered provider that
   advertises the `agentOptions` capability works.
 
+[0.2.5]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.1...v0.2.2

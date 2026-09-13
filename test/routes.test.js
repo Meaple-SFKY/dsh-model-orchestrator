@@ -30,6 +30,10 @@ function deps() {
     engine: {
       refresh: async () => ({ models: [] }),
       plan: async () => ({ tier: 'direct', units: [] }),
+      // The real engine re-narrows the pool after a configuration write; the stub has
+      // to carry it too, or the route's call to it is silently optional here and the
+      // wiring is never exercised.
+      refilterPool: () => 0,
       inFlightCount: 0,
     },
     pool,
@@ -904,6 +908,30 @@ test('a hand-set level on an automatic route is reported as applied, not ignored
     assert.equal(model.reasoningEffort, 'high', 'it is applied, and the panel must say so');
     assert.equal(model.effortIgnored, undefined, 'it must not also be reported as ignored');
     assert.equal(model.reasoningMode, 'automatic', 'so the client renders the manual form');
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('applying a configuration re-narrows the pool instead of waiting for staleness', async () => {
+  // An allow/deny change filters the pool, and the filter used to run only inside a
+  // discovery — so after changing it the panel showed the previous sets while routing
+  // already used the new ones, until the pool's staleness window expired.
+  const d = deps();
+  try {
+    let refilters = 0;
+    d.engine.refilterPool = () => {
+      refilters += 1;
+      return 7;
+    };
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const answer = exchange({ method: 'POST', body: { allowedRoutes: [] } });
+    await server.routes.get(`${ROUTE_PREFIX}/configure`).handler(answer.req, answer.res);
+    assert.equal(answer.captured.status, 200);
+    assert.equal(refilters, 1, 'the pool must be re-filtered by the write that changed it');
+    assert.equal(answer.captured.body.poolSize, 7, 'and the resulting size is reported');
   } finally {
     d.cleanup();
   }

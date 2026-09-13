@@ -583,3 +583,23 @@ test('the capability areas are gated on Guided and revealed with a transition', 
   assert.ok(css !== null && js !== null, 'both durations must be present');
   assert.ok(Number(js[1]) >= Number(css[1]), `unmount (${js[1]}ms) must not precede the transition (${css[1]}ms)`);
 });
+
+test('the panel Refresh actually forces a re-discovery', () => {
+  // The route has supported `?force=1` all along and has its own test; the CLIENT never
+  // sent it, so the button re-read the cached snapshot and a changed provider model list
+  // or subagent policy could not be refreshed from the panel at all. There is no DOM
+  // harness here, so this asserts the wiring at the source: the reader can force, and
+  // both user-initiated Refresh buttons do.
+  assert.ok(
+    /ROUTES\.state\}\?force=1/.test(clientSource),
+    'the state reader must be able to force a re-discovery',
+  );
+  const forced = clientSource.match(/reload\(true, true\)/g) ?? [];
+  assert.equal(forced.length, 2, 'both Refresh buttons must force, not just re-read');
+  // And the polls must NOT force: a ten-second poll that re-listed every provider would
+  // be the network hammering the route's own comment warns about.
+  assert.ok(
+    !/setInterval\([^)]*force/.test(clientSource) && !/readState\(true\)/.test(clientSource.split('reload')[0]),
+    'the background poll must stay cheap',
+  );
+});

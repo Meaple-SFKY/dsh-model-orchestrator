@@ -1173,3 +1173,139 @@ test('an ordinary run reports its budget and does not claim to have hit it', asy
     cleanup();
   }
 });
+
+/** A pool stub that records refreshes, for the freshness policy tests. */
+function stubPool(options = {}) {
+  const state = {
+    models: options.models ?? [],
+    seenAt: options.discoveredAt ?? Date.now(),
+    providers: options.providers ?? [],
+    refreshes: 0,
+    refilters: 0,
+    prefs: undefined,
+  };
+  return {
+    state,
+    models: () => state.models,
+    providers: () => state.providers,
+    problems: () => [],
+    filtered: () => ({}),
+    filterReport: () => ({}),
+    fingerprint: () => 'stub',
+    advertisedProviders: () => state.providers,
+    discoveredAt: () => state.seenAt,
+    lastError: () => undefined,
+    get: (route) => state.models.find((model) => model.route === route),
+    setPreferences(preferences) {
+      state.prefs = preferences;
+    },
+    refilter() {
+      state.refilters += 1;
+      return state.models.length;
+    },
+    async refresh() {
+      state.refreshes += 1;
+      state.seenAt = Date.now();
+      if (options.failWith !== undefined) throw options.failWith;
+      state.models = options.afterRefresh ?? state.models;
+      return { models: state.models, problems: [], discoveredAt: state.seenAt };
+    },
+  };
+}
+
+function engineWithPool(pool, llm) {
+  const directory = mkdtempSync(join(tmpdir(), 'orch-fresh-'));
+  const store = new OrchestratorStore(directory);
+  const engine = new Orchestrator({
+    ctx: { get: (key) => (key === 'llm' ? llm : undefined) },
+    pool,
+    taxonomy: new Taxonomy(),
+    store,
+    logger: undefined,
+  });
+  return { engine, cleanup: () => rmSync(directory, { recursive: true, force: true }) };
+}
+
+test('a pool older than its window is re-read before the next call uses it', async () => {
+  // Discovery used to run only when the pool was EMPTY, so a deployment that changed
+  // its provider's model list saw nothing until the process restarted.
+  const pool = stubPool({
+    models: [profileOf('p1', 'm1', { description: 'coding implementation' })],
+    discoveredAt: Date.now() - 6 * 60 * 1000,
+    providers: ['p1'],
+  });
+  const { engine, cleanup } = engineWithPool(pool, { listProviders: () => [{ id: 'p1' }] });
+  try {
+    await engine.plan({ task: 'Implement the parser.', captain: CAPTAIN });
+    assert.equal(pool.state.refreshes, 1, 'a stale pool must be re-discovered');
+  } finally {
+    cleanup();
+  }
+});
+
+test('a fresh pool is not re-read, so an ordinary call asks the provider nothing', async () => {
+  const pool = stubPool({
+    models: [profileOf('p1', 'm1', { description: 'coding implementation' })],
+    discoveredAt: Date.now(),
+    providers: ['p1'],
+  });
+  const { engine, cleanup } = engineWithPool(pool, { listProviders: () => [{ id: 'p1' }] });
+  try {
+    await engine.plan({ task: 'Implement the parser.', captain: CAPTAIN });
+    await engine.plan({ task: 'Implement the parser.', captain: CAPTAIN });
+    assert.equal(pool.state.refreshes, 0, 'the listing must not run per call');
+  } finally {
+    cleanup();
+  }
+});
+
+test('an adapter appearing or disappearing re-reads the pool immediately', async () => {
+  // The host emits a topology event for this, but the check is a synchronous registry
+  // read: cheap enough to run always, and it survives a missed event.
+  const pool = stubPool({
+    models: [profileOf('p1', 'm1', { description: 'coding implementation' })],
+    discoveredAt: Date.now(),
+    providers: ['p1'],
+  });
+  const { engine, cleanup } = engineWithPool(pool, {
+    listProviders: () => [{ id: 'p1' }, { id: 'p2' }],
+  });
+  try {
+    await engine.plan({ task: 'Implement the parser.', captain: CAPTAIN });
+    assert.equal(pool.state.refreshes, 1, 'a changed provider set must be re-discovered');
+  } finally {
+    cleanup();
+  }
+});
+
+test('a failed refresh of a stale pool keeps the pool and does not fail the call', async () => {
+  const profiles = [profileOf('p1', 'm1', { description: 'coding implementation' })];
+  const pool = stubPool({
+    models: profiles,
+    discoveredAt: Date.now() - 6 * 60 * 1000,
+    providers: ['p1'],
+    failWith: new Error('provider is offline'),
+  });
+  const { engine, cleanup } = engineWithPool(pool, { listProviders: () => [{ id: 'p1' }] });
+  try {
+    const answer = await engine.plan({ task: 'Implement the parser.', captain: CAPTAIN });
+    assert.equal(pool.state.refreshes, 1, 'it did try');
+    assert.equal(answer.pool.size, 1, 'and the previous pool is still served');
+  } finally {
+    cleanup();
+  }
+});
+
+test('refilterPool re-narrows the pool without re-discovering it', async () => {
+  const pool = stubPool({ models: [], providers: ['p1'] });
+  const { engine, cleanup } = engineWithPool(pool, { listProviders: () => [{ id: 'p1' }] });
+  try {
+    const size = engine.refilterPool();
+    assert.equal(pool.state.refilters, 1, 'the filter was re-applied');
+    assert.equal(pool.state.refreshes, 0, 'and nothing was asked of the provider');
+    assert.equal(pool.state.prefs !== undefined, true, 'the new preferences were handed over first');
+    assert.equal(typeof size, 'number');
+  } finally {
+    cleanup();
+  }
+});

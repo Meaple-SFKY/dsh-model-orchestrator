@@ -16,7 +16,7 @@ specific to any business domain.
 
 | Concern | How it is handled |
 |---|---|
-| **Model discovery** | Reads the live LLM registry on every activation and whenever the adapter topology changes. The pool is never hardcoded and never persisted. |
+| **Model discovery** | Reads the live LLM registry at activation, when the adapter topology changes, at most five minutes after the last read, and on demand — the panel's **Refresh pool**, `orchestrate_models { refresh: true }`, or `GET /state?force=1`. A provider's model listing can be a network round trip, so the periodic re-read is lazy: it happens when something next needs the pool, and a failure keeps the pool that already exists. The pool is never hardcoded and never persisted. |
 | **Capability profiling** | Builds a profile per model from authoritative host facts (input modalities, context window, exposed reasoning efforts) plus the provider's own declared description. Nothing is invented. |
 | **Task matching** | Turns a task into a requirement set, then scores every live model against it deterministically. A hard requirement that cannot be evidenced **rejects** a model instead of silently downgrading. |
 | **Open capability system** | A capability is a generic descriptor, not a domain→model table. Unrecognized domains mint a **new** descriptor from the task's own vocabulary, which is persisted so the taxonomy genuinely grows. |
