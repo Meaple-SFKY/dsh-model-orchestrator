@@ -385,8 +385,18 @@ Per-model capability evidence is layered, weakest to strongest:
 3. **Calibrated self-report** (measured, opt-in): the plugin asks each model to describe
    its own strengths against the current taxonomy and records the answer.
 
+4. **Researched** (opt-in, user-triggered, external): public model identity and published
+   prices, read from the web by `lib/web-research.js` on a Sync, validated by
+   `lib/model-research.js`, and stored under a top-level `research` key **keyed by model
+   identity**. It is deliberately NOT merged into a profile's facts: a profile's `evidence`
+   still reads `metadata` / `declared` / `calibrated`, so nothing from the web can be mistaken
+   for something the host measured. Its only influence on routing is the cost tie-break, which
+   reads a published price where one exists and the measured tier where none does.
+
 Nothing is invented. A missing `inputModalities` yields `unknown`, never `false`, so the
-matcher can refuse to route an image task to an unverified model.
+matcher can refuse to route an image task to an unverified model. And an identity the researcher
+could not confirm is stored as unconfirmed — never given a plausible name, and never counted as
+declared evidence.
 
 ### 2.5 Matching
 
@@ -505,3 +515,10 @@ history in the panel) and by `test/persistence.test.js` (the state schema contai
 - No hardcoded model names, no model→domain table, no provider allow-list.
 - No modification of DSH core or `node_modules`.
 - No domain specificity: the taxonomy is generic.
+- **No network I/O of its own except Sync.** This reverses an earlier absolute ("it will never
+  fetch public model data"), which was written when the only alternative was guessing a model's
+  capability from its name. Sync answers that objection rather than ignoring it: the fetch is
+  user-initiated, every claim carries its sources and timestamp, an unconfirmed identity stays
+  unconfirmed, and none of it overrides a measurement. The failure mode the old rule guarded
+  against — inventing capability — remains impossible, because researched facts never enter a
+  profile.

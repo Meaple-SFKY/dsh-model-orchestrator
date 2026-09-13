@@ -281,3 +281,44 @@ test('one sweep at a time: a second request joins the first', async () => {
   await first;
   assert.equal(calls, 1, 'only one sweep may run');
 });
+
+test('cancelling a sweep aborts it, refuses to write, and frees the slot', async () => {
+  // `cancel` used to only drop the reference: the work kept running, kept writing
+  // after teardown, and a later start() ran a SECOND sweep beside the first.
+  let writes = 0;
+  let observed;
+  let release;
+  const gate = new Promise((done) => {
+    release = done;
+  });
+  const runner = createSyncRunner({
+    pool: { models: () => POOL },
+    store: {
+      snapshot: () => ({ research: {} }),
+      update: () => {
+        writes += 1;
+      },
+      writeError: undefined,
+    },
+    runResearch: async ({ signal }) => {
+      observed = signal;
+      await gate;
+      return ANSWER;
+    },
+    now: () => 21,
+  });
+
+  const sweep = runner.start({});
+  assert.equal(observed.aborted, false, 'the sweep starts unaborted');
+  runner.cancel();
+  assert.equal(observed.aborted, true, 'cancel must abort the work, not forget it');
+  release();
+  const status = await sweep;
+  assert.equal(status.status, 'cancelled');
+  assert.equal(writes, 0, 'an aborted sweep must not write');
+  assert.equal(runner.status().status, 'cancelled');
+
+  // The slot is free afterwards, so the next request is a real sweep again.
+  const second = await runner.start({});
+  assert.equal(second.status, 'done');
+});

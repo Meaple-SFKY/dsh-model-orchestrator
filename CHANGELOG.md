@@ -9,6 +9,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A review pass, fixing what it found.** `sync.cancel()` claimed to abort an in-flight sweep and
+  only dropped the reference: the work kept running, kept **writing to the store after teardown**,
+  and a later `start()` ran a second sweep alongside the first — the opposite of the one-at-a-time
+  guarantee its own comment made. Each sweep now owns an `AbortController`, `cancel()` aborts it,
+  an aborted sweep reports `cancelled` and writes nothing, and the slot is released only by the
+  sweep that holds it. Four smaller ones: the research validator read `row.currency`, a field
+  `RESEARCH_SCHEMA` never requests, so it could only ever fall back to USD; `web-research.js`
+  re-exported `researchFor` purely because it imported it; the price scale was recomputed (and the
+  whole persisted state cloned) once per ranking call, several times per plan, instead of once;
+  and the Guided merge re-sorted the caller's own requirements by weight, changing which
+  requirement becomes a cluster's primary — additions are appended now and the caller's order
+  stands. Five locale keys nothing reads (`doc.unavailable`, `capacity.calibrations`,
+  `board.statDelegatedSuffix`, `board.statRunning`, `pool.researchedAs`) are gone.
+
+### Fixed
+
 - **Guided capability areas were applied in Auto mode, and dropped whenever the calling model
   answered.** Two defects in the same mechanism, neither pinned by a test. `#localAnalysis` seeded
   the selected areas without checking the mode, so areas left selected while Auto was on kept

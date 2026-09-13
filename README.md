@@ -535,8 +535,21 @@ nothing keep the task-level preference. The rules:
 | A **malformed entry is discarded** | no half-built route can be invented |
 | With **no preference, the measured ranking stands** | the plugin still works alone |
 
-The tool description tells the calling model this explicitly, so it reaches for its own model
-knowledge rather than trusting a route id it cannot interpret.
+The same section states the full ladder, highest first, because a preference that appears to be
+ignored is otherwise indistinguishable from a bug:
+
+| Rung | Who set it |
+|---|---|
+| `analysis.unitModelPreference` | The calling model, about **one unit** — the most specific statement there is |
+| **Capability assignments** | The **user's** standing policy, set once in the panel |
+| `analysis.modelPreference` | The calling model, about the **task** |
+| The measured ranking | The plugin, from host facts |
+
+So a task-level preference does **not** overrule a table the user configured — otherwise any
+chatty caller would quietly defeat it — while a per-unit preference still does, which is the way
+to override the table for one unit. The tool description tells the calling model this explicitly,
+so it reaches for its own model knowledge rather than trusting a route id it cannot interpret,
+and so it understands which rung it is standing on.
 
 ### Judgements belong to the model
 
@@ -587,9 +600,14 @@ identical everywhere. **Sync**, in the model pool, closes that with public facts
 - **Published list prices**, per million input and output tokens.
 - **What public sources say the model is good at**, and the URLs those claims came from.
 
-Sync is the one place this plugin touches the network, and it is deliberately not automatic:
-nothing is fetched at activation or on a poll, and a sweep runs only when the button is pressed.
-It searches the web once per route through the harness's own web service, then one model call
+Sync is the only action **the plugin itself** takes on the network — the one whose cost and content
+it chooses. It is deliberately not automatic: nothing is fetched at activation or on a poll, and a
+sweep runs only when the button is pressed. (The harness's own model discovery does talk to a
+provider when it refreshes the pool; that is why the plugin keeps discovery off the boot path and
+never re-runs it on a poll. See *Performance*.)
+On a deployment with no `web` service, Sync reports that it cannot research and everything else is
+unaffected — the service is optional, like the command registry. It searches the web once per route
+through the harness's own web service, then one model call
 reconciles the sources into facts — the model judges the sources, the plugin decides what it is
 allowed to see, and nothing is stored that the validator cannot check.
 
@@ -684,7 +702,7 @@ pgrep -fa 'dsh --profile'
 ## Development
 
 ```sh
-node --test "test/*.test.js"   # 278 tests, no host required
+node --test "test/*.test.js"   # 283 tests, no host required
 node scripts/check-compat.mjs  # host compatibility report
 ```
 

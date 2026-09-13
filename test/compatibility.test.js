@@ -6,9 +6,10 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as compatibility from '../lib/compatibility.js';
 import {
   assertCompatible,
   declaredDshRange,
@@ -32,12 +33,16 @@ function healthyContext(overrides = {}) {
     listModels: async (provider) =>
       provider === 'p1' ? [{ provider, id: 'm1', name: 'M1', inputModalities: ['text'] }] : [],
     resolveModelInfo: async (provider, model) => ({ provider, id: model, name: model }),
+    // The engine's pre-flight calls this before every delegation, so a host without
+    // it is not healthy — the gate under-checked it until the contract moved to the
+    // document, which is how this stub came to be missing a method in use.
+    resolveCallConfig: async (config) => config,
     ...overrides.llm,
   };
   const services = {
     llm,
     subagents: { list: () => ['spawn'], start: async () => {}, getProvider: () => undefined },
-    tools: { register: () => () => {}, restrict: () => () => {} },
+    tools: { register: () => () => {} },
     systemPrompt: { section: () => () => {} },
     ...overrides.services,
   };
@@ -229,10 +234,14 @@ test('a provider registered without a usable id is refused', async (t) => {
   );
 });
 
-test('the probe reports an optional service as absent without failing', async () => {
+test('the probe reports optional services as absent without failing', async () => {
   const probe = await probeRuntime(healthyContext());
   assert.deepEqual(probe.problems, []);
-  assert.deepEqual(probe.optionalMissing, ['workflowEngine']);
+  // Asserted against the document rather than a literal list: the optional set is
+  // the deployment's to declare, and it grew (web, commands) without the probe
+  // needing a change.
+  const documented = JSON.parse(readFileSync(join(ROOT, 'compatibility.json'), 'utf8')).optionalServices;
+  assert.deepEqual([...probe.optionalMissing].sort(), [...documented].sort());
 });
 
 test('the probe does not treat an optional service as required', async () => {
@@ -240,7 +249,7 @@ test('the probe does not treat an optional service as required', async () => {
     services: { workflowEngine: { start: () => {} } },
   });
   const probe = await probeRuntime(ctx);
-  assert.deepEqual(probe.optionalMissing, []);
+  assert.equal(probe.optionalMissing.includes('workflowEngine'), false);
 });
 
 test('the refusal message states the requirement and what was found', async () => {
@@ -256,4 +265,56 @@ test('the refusal message states the requirement and what was found', async () =
   assert.match(error.message, /dsh plugin --profile <name> remove dsh-model-orchestrator/);
   assert.equal(error.code, 'ORCHESTRATOR_INCOMPATIBLE_HOST');
   assert.equal(error.name, 'OrchestratorIncompatibleHostError');
+});
+
+test('the enforced contract comes from compatibility.json, and the fallback agrees', () => {
+  // Two copies of one contract is how the gate came to omit
+  // `llm.resolveCallConfig` (which the engine's pre-flight calls, so the gate let
+  // through hosts that would fail later) and to demand `tools.restrict` (which
+  // nothing calls, so it refused hosts that were fine).
+  const { loadContract, __internals } = compatibility;
+  const contract = loadContract();
+  const json = JSON.parse(readFileSync(join(ROOT, 'compatibility.json'), 'utf8'));
+
+  assert.deepEqual(
+    contract.required.map((entry) => entry.service).sort(),
+    [...json.requiredServices].sort(),
+    'every required service in the document must be enforced',
+  );
+  for (const entry of contract.required) {
+    assert.deepEqual(
+      entry.methods,
+      json.requiredServiceMethods[entry.service],
+      `${entry.service}: the enforced methods must be the documented ones`,
+    );
+  }
+  assert.deepEqual(
+    contract.optional.map((entry) => entry.service).sort(),
+    [...json.optionalServices].sort(),
+    'every documented optional service must be treated as optional',
+  );
+
+  // The fallback is only for a missing document, and must not drift from it.
+  const fallback = Object.fromEntries(
+    __internals.FALLBACK_REQUIRED_CONTRACT.map((entry) => [entry.service, entry.methods]),
+  );
+  assert.deepEqual(fallback, json.requiredServiceMethods);
+});
+
+test('every method the gate demands is a method the plugin actually calls', () => {
+  // The other direction of the same drift: a required method nothing calls makes
+  // the plugin refuse a host it could have worked on.
+  const { loadContract } = compatibility;
+  const sources = readdirSync(join(ROOT, 'lib'))
+    .filter((name) => name.endsWith('.js') && name !== 'compatibility.js')
+    .map((name) => readFileSync(join(ROOT, 'lib', name), 'utf8'))
+    .join('\n');
+  for (const entry of loadContract().required) {
+    for (const method of entry.methods) {
+      assert.ok(
+        sources.includes(method),
+        `${entry.service}.${method} is required but never called anywhere in lib/`,
+      );
+    }
+  }
 });

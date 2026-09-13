@@ -881,3 +881,39 @@ test('the caller still wins for a capability both sides name', async () => {
     cleanup();
   }
 });
+
+test("the caller's requirement order survives the Guided merge", async () => {
+  // A cluster's primary requirement is the first one composition meets, and the
+  // caller's order is a deliberate sequence — so merging must append additions
+  // rather than re-sort the caller's own list.
+  const profiles = [
+    profileOf('p1', 'coder', { description: 'coding implementation' }),
+    profileOf('p1', 'vision', { description: 'image understanding', modalities: ['text', 'image'] }),
+    profileOf('p1', 'analyst', { description: 'data analysis statistics' }),
+  ];
+  const { engine, store, cleanup } = makeEngine({ profiles });
+  try {
+    store.update((state) => {
+      state.mode = 'guided';
+      state.guided.capabilities = ['data.analysis'];
+    });
+    const plan = await engine.plan({
+      task: 'Implement the parser.',
+      analysis: {
+        summary: 'implement',
+        complexity: 'specialist',
+        requirements: [
+          { capability: 'multimodal.vision', weight: 0.9 },
+          { capability: 'software.implementation', weight: 0.6 },
+        ],
+      },
+    });
+    assert.deepEqual(
+      plan.analysis.requirements.map((entry) => entry.capability),
+      ['multimodal.vision', 'software.implementation', 'data.analysis'],
+      'the caller order first, the added area last',
+    );
+  } finally {
+    cleanup();
+  }
+});

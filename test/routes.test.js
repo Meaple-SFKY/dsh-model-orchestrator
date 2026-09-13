@@ -851,3 +851,25 @@ test('the pool state carries the researched facts, the cost basis and the reason
     d.cleanup();
   }
 });
+
+test('a sync runner that throws while starting is reported, not absorbed by the server', async () => {
+  const d = deps();
+  try {
+    d.sync = {
+      start: () => {
+        throw new Error('the pool is not ready');
+      },
+      status: () => ({ status: 'idle' }),
+    };
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const answer = exchange({ method: 'POST', body: {} });
+    await server.routes.get(`${ROUTE_PREFIX}/sync`).handler(answer.req, answer.res);
+    assert.equal(answer.captured.status, 200);
+    assert.equal(answer.captured.body.ok, false);
+    assert.match(answer.captured.body.status.error, /pool is not ready/);
+  } finally {
+    d.cleanup();
+  }
+});
