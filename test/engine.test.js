@@ -785,3 +785,99 @@ test('a stale level on a route that DOES list levels is still ignored', async ()
     cleanup();
   }
 });
+
+test('Guided areas apply only in Guided mode', async () => {
+  // They were seeded regardless of mode, while the panel said "capability areas
+  // apply in Guided mode". Auto means "read each task and decide by itself", so
+  // areas left selected while Auto is on are kept for when Guided comes back —
+  // not applied.
+  const profiles = [
+    profileOf('p1', 'm1', { description: 'coding implementation' }),
+    profileOf('p1', 'm2', { description: 'image understanding' }),
+  ];
+  const { engine, store, cleanup } = makeEngine({ profiles });
+  try {
+    store.update((state) => {
+      state.guided.capabilities = ['multimodal.vision'];
+    });
+
+    const auto = await engine.plan({ task: 'Implement the parser.' });
+    assert.equal(
+      auto.units.some((unit) => unit.capabilityId.startsWith('multimodal')),
+      false,
+      'Auto must not seed the areas',
+    );
+
+    store.update((state) => {
+      state.mode = 'guided';
+    });
+    const guided = await engine.plan({ task: 'Implement the parser.' });
+    assert.equal(
+      guided.units.some((unit) => unit.capabilityId.startsWith('multimodal')),
+      true,
+      'Guided must seed them',
+    );
+    assert.equal(guided.analysis.source, 'guided');
+  } finally {
+    cleanup();
+  }
+});
+
+test("a caller's own requirements no longer drop the user's Guided areas", async () => {
+  // Returning the caller's analysis whole meant a caller that stated ANY
+  // requirements silently overrode the user's session setting.
+  const profiles = [
+    profileOf('p1', 'coder', { description: 'coding implementation' }),
+    profileOf('p1', 'vision', { description: 'image understanding', modalities: ['text', 'image'] }),
+  ];
+  const { engine, store, cleanup } = makeEngine({ profiles });
+  try {
+    store.update((state) => {
+      state.mode = 'guided';
+      state.guided.capabilities = ['multimodal.vision'];
+    });
+    const plan = await engine.plan({
+      task: 'Implement the parser.',
+      analysis: {
+        summary: 'implement',
+        complexity: 'specialist',
+        requirements: [{ capability: 'software.implementation', weight: 0.9 }],
+      },
+    });
+    const capabilities = plan.units.map((unit) => unit.capabilityId);
+    assert.ok(capabilities.includes('software.implementation'), "the caller's requirement stands");
+    assert.ok(capabilities.includes('multimodal.vision'), 'the user area is added, not dropped');
+    assert.equal(plan.analysis.source, 'model+guided', 'and the source says so');
+  } finally {
+    cleanup();
+  }
+});
+
+test('the caller still wins for a capability both sides name', async () => {
+  const profiles = [profileOf('p1', 'coder', { description: 'coding implementation' })];
+  const { engine, store, cleanup } = makeEngine({ profiles });
+  try {
+    store.update((state) => {
+      state.mode = 'guided';
+      state.guided.capabilities = ['software.implementation'];
+    });
+    const plan = await engine.plan({
+      task: 'Implement the parser.',
+      analysis: {
+        summary: 'implement',
+        complexity: 'specialist',
+        requirements: [
+          { capability: 'software.implementation', weight: 0.9, reason: 'the caller said so' },
+        ],
+      },
+    });
+    assert.equal(plan.units.length, 1, 'naming the same capability must not duplicate the unit');
+    const requirement = plan.analysis.requirements.find(
+      (entry) => entry.capability === 'software.implementation',
+    );
+    assert.equal(requirement.weight, 0.9, "the caller's weight wins");
+    assert.equal(requirement.reason, 'the caller said so');
+  } finally {
+    cleanup();
+  }
+});

@@ -278,6 +278,38 @@ The plugin still names no model anywhere in its selection logic — the table is
 matching answers only *"is this still the same model"*; it never decides which model is better
 at what.
 
+### How the two panels relate
+
+They sit next to each other and answer **different questions**, which is also why they cannot
+disagree:
+
+| Panel | Question | Controls |
+|---|---|---|
+| **Capability areas** (Guided) | *Which kinds of work are in scope for this session?* | The requirement set: it seeds a capability at weight 0.7, so a unit exists for it that the task text alone would not have produced |
+| **Capability assignments** | *Who does each kind of work?* | The preference order for the route a unit is matched to, and whether two capabilities in one cluster split into separate units |
+
+So the composition is: **areas decide what exists, assignments decide who does it.** They only
+overlap when both name the same capability, and then there is nothing to resolve — the area makes
+the requirement exist, the assignment routes it.
+
+Two rules keep that true, both newly enforced and both previously broken:
+
+- **Areas apply in Guided mode only.** They used to seed regardless of mode, so areas left
+  selected while Auto was on silently kept shaping routing — while the panel said they apply in
+  Guided. Auto means "read each task and decide by itself". Areas you keep selected are kept for
+  when Guided comes back, not applied.
+- **A caller's own requirements no longer discard them.** The intake returned the calling model's
+  analysis whole whenever it stated any requirement, so a caller that answered at all silently
+  overrode the user's own session setting. They are now merged: for a capability both name, the
+  caller wins (it is the more specific statement about *this task*); an area the caller did not
+  name is **added**, because nothing else was going to bring it up and the user asked for it. The
+  result reports `source: "model+guided"`.
+
+One consequence worth knowing: an assignment **only fires for a capability that becomes a
+requirement**. It is a routing policy, not a trigger — assigning `web.information` does not make a
+task involve the web. Capability areas *can* be that trigger, which is the one way the two panels
+compose into something neither does alone.
+
 ## How matching works
 ```
 score(model, task) = geometric_mean( satisfaction(requirementᵢ, model) ^ weightᵢ ) × confidence
@@ -652,7 +684,7 @@ pgrep -fa 'dsh --profile'
 ## Development
 
 ```sh
-node --test "test/*.test.js"   # 275 tests, no host required
+node --test "test/*.test.js"   # 278 tests, no host required
 node scripts/check-compat.mjs  # host compatibility report
 ```
 

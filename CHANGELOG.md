@@ -7,6 +7,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Guided capability areas were applied in Auto mode, and dropped whenever the calling model
+  answered.** Two defects in the same mechanism, neither pinned by a test. `#localAnalysis` seeded
+  the selected areas without checking the mode, so areas left selected while Auto was on kept
+  shaping routing while the panel said they apply in Guided — and Auto means "read each task and
+  decide by itself". The intake then returned the caller's analysis whole whenever it stated any
+  requirement, so a caller that answered at all silently overrode the user's own session setting.
+  The areas now apply in Guided mode only, and are **merged** with a caller's requirements rather
+  than dropped: for a capability both name the caller wins, and an area the caller did not name is
+  added, because nothing else was going to bring it up. The result reports `source: "model+guided"`.
+
 ### Added
 
 - **Capability names are bilingual in the panel.** The taxonomy's labels stay English because a
