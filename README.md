@@ -652,7 +652,7 @@ pgrep -fa 'dsh --profile'
 ## Development
 
 ```sh
-node --test "test/*.test.js"   # 271 tests, no host required
+node --test "test/*.test.js"   # 275 tests, no host required
 node scripts/check-compat.mjs  # host compatibility report
 ```
 
