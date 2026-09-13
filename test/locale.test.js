@@ -137,8 +137,11 @@ test('the dictionaries cover every surface the panel renders', () => {
     'preferences.',
     'preview.',
     'capacity.',
-    'strip.',
+    // No 'strip.' here any more: the ambient composer strip was deliberately
+    // removed (the board replaced it), so that surface has one surviving key and
+    // asserting a cluster for it would pin a surface the panel does not render.
     'tier.',
+    'assignment.',
   ]) {
     const count = Object.keys(en).filter((key) => key.startsWith(prefix)).length
     assert.ok(count >= 2, `the "${prefix}" surface has only ${count} key(s)`)

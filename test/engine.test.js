@@ -917,3 +917,81 @@ test("the caller's requirement order survives the Guided merge", async () => {
     cleanup();
   }
 });
+
+test('a split cluster returns every answer, not the last one twice', async () => {
+  // Regression, and a silent one: units were pushed with `id: group`, so a split
+  // cluster produced two units sharing one id. `#executeUnits` keys results by id,
+  // so the second overwrote the first — the run reported completed: 2 while one
+  // specialist's answer was simply absent from `aggregated`.
+  const profiles = [
+    profileOf('p1', 'alpha', { description: 'system design and architecture tradeoffs' }),
+    profileOf('p1', 'beta', { description: 'coding implementation' }),
+  ];
+  const { engine, host, cleanup } = makeEngine({
+    profiles,
+    preferences: {
+      capabilityAssignments: {
+        'software.architecture': { models: ['alpha'], family: false },
+        'software.implementation': { models: ['beta'], family: false },
+      },
+    },
+    answer: undefined,
+  });
+  try {
+    const run = await engine.run({
+      task: 'Implement the parser.',
+      captain: CAPTAIN,
+      analysis: {
+        summary: 'design then implement',
+        complexity: 'specialist',
+        requirements: [
+          { capability: 'software.architecture', weight: 0.9 },
+          { capability: 'software.implementation', weight: 0.9 },
+        ],
+      },
+    });
+    assert.equal(run.results.length, 2, 'both specialists must be reported');
+    assert.equal(new Set(run.results.map((entry) => entry.id)).size, 2, 'unit ids must be unique');
+    assert.deepEqual(
+      run.results.map((entry) => entry.route).sort(),
+      ['p1/alpha', 'p1/beta'],
+      'each unit keeps its own route',
+    );
+    assert.equal(run.counts.completed, 2);
+    assert.equal(host.calls.length, 2);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a dispatch registers its child, so teardown can abort it', async () => {
+  // It never did: `abortAll` could not reach a dispatch child, and `/state`
+  // under-reported in-flight delegations.
+  const profiles = [profileOf('p1', 'm1', { description: 'coding implementation' })];
+  const { engine, host, cleanup } = makeEngine({ profiles });
+  try {
+    const original = host.subagents.start;
+    let release;
+    const gate = new Promise((done) => {
+      release = done;
+    });
+    host.subagents.start = async (name, request) => {
+      const run = await original(name, request);
+      await gate;
+      return run;
+    };
+    const pending = engine.dispatch({
+      task: 'Implement the parser.',
+      provider: 'p1',
+      model: 'm1',
+      captain: CAPTAIN,
+    });
+    await new Promise((done) => setTimeout(done, 5));
+    assert.equal(engine.inFlightCount, 1, 'the dispatch must be counted as in flight');
+    assert.equal(engine.abortAll('test teardown'), 1, 'and teardown must be able to abort it');
+    release();
+    await pending;
+  } finally {
+    cleanup();
+  }
+});

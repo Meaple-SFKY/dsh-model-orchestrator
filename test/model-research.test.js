@@ -322,3 +322,43 @@ test('cancelling a sweep aborts it, refuses to write, and frees the slot', async
   const second = await runner.start({});
   assert.equal(second.status, 'done');
 });
+
+test('the same public model behind two providers is one entry, not two', () => {
+  // Keying by the route's own id string stored it twice and let the copies drift.
+  // The public identity is what the two routes genuinely share.
+  const twoProviders = [
+    { route: 'commandcode/gpt-5.6-sol', model: 'gpt-5.6-sol', name: 'GPT-5.6 Sol (CC)' },
+    { route: 'otherai/gpt-5.6-sol', model: 'gpt-5.6-sol', name: 'GPT 5.6 Sol' },
+  ];
+  const entries = normalizeResearch(
+    {
+      results: [
+        { route: 'commandcode/gpt-5.6-sol', matched: true, publicName: 'GPT-5.6 Sol', inputPerMTok: 10 },
+        { route: 'otherai/gpt-5.6-sol', matched: true, publicName: 'GPT-5.6 Sol', outputPerMTok: 30 },
+      ],
+    },
+    { models: twoProviders, at: 1 },
+  ).entries;
+
+  const stored = mergeResearch({}, entries);
+  assert.deepEqual(Object.keys(stored), ['gpt56sol'], 'one public identity, one entry');
+  assert.equal(stored.gpt56sol.inputPerMTok, 10);
+  assert.equal(stored.gpt56sol.outputPerMTok, 30, 'the second provider merges into the same record');
+
+  // And it is still found from EITHER live route.
+  for (const model of twoProviders) {
+    assert.equal(researchFor(stored, model)?.publicName, 'GPT-5.6 Sol');
+  }
+
+  // An unconfirmed route keeps its own key: its note belongs to that route.
+  const unconfirmed = normalizeResearch(
+    { results: [{ route: 'commandcode/stealth/ox-alpha', matched: false, notes: 'nothing public' }] },
+    { models: [{ route: 'commandcode/stealth/ox-alpha', model: 'stealth/ox-alpha', name: 'ox-alpha' }], at: 2 },
+  ).entries;
+  const withUnconfirmed = mergeResearch(stored, unconfirmed);
+  assert.deepEqual(
+    Object.keys(withUnconfirmed).sort(),
+    ['gpt56sol', 'stealthoxalpha'],
+    'an unconfirmed route keeps its own identity key, not the public one',
+  );
+});

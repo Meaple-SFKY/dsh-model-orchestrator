@@ -279,3 +279,27 @@ test('capability assignments survive a write and a reload', () => {
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('a newer-schema file is not overwritten, even by an ordinary write', () => {
+  // The read refused to interpret it, but `save()` wrote unconditionally — and
+  // activation writes on its own (a pool refresh prunes calibrations), so the very
+  // first refresh replaced the file the read had just protected.
+  const directory = mkdtempSync(join(tmpdir(), 'orch-newer-schema-'));
+  const path = join(directory, 'state.json');
+  try {
+    const future = `${JSON.stringify({ ...defaultState(), schemaVersion: STATE_SCHEMA_VERSION + 3 }, null, 2)}\n`;
+    writeFileSync(path, future, 'utf8');
+    const store = new OrchestratorStore(directory);
+    assert.match(store.writeError, /newer than supported/);
+
+    store.pruneProfiles([]);
+    assert.equal(readFileSync(path, 'utf8'), future, 'the file must be byte-identical afterwards');
+
+    store.update((state) => {
+      state.mode = 'guided';
+    });
+    assert.equal(readFileSync(path, 'utf8'), future, 'and still identical after any other write');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

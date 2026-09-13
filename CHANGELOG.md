@@ -7,6 +7,41 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The README is bilingual.** `README.zh.md` carries the same document in Chinese, with equal
+  authority, and `README.i18n.yaml` records the git blob hash of each side as of the last
+  confirmed-consistent state — the convention the harness's own packages use. A test enforces it
+  three ways: both sides must carry a switcher, the structure must match (heading, fence and table
+  counts), and the recorded hashes must match the files as they are, so editing one side and
+  forgetting the other fails rather than ships. Code blocks, identifiers, route and model ids,
+  locale keys and version strings stay verbatim on both sides by design.
+
+### Fixed
+
+- **A second review pass, this one adversarial and independent.** It found a silent data-loss bug
+  the first pass introduced: `#composeUnits` pushes every bucket with `id: group`, and `#executeUnits`
+  keys results BY ID — so a split cluster produced two units sharing one id, the second overwrote
+  the first, and a specialist's answer was simply absent from `aggregated` while the run reported
+  `completed: 2`. Unit ids carry an ordinal now, units list every capability they cover so
+  `plan()` maps each requirement to its route, and a regression test asserts both answers survive.
+  Also fixed: `firstDiscovery` was built and never handed to the routes, so the "first panel read
+  waits for discovery" branch was dead while the README described it; a newer-schema state file was
+  refused on read and then overwritten by the first ordinary write, because `save()` did not know
+  about the refusal; `orchestrate_configure` advertised `decisionCues` in its schema and silently
+  ignored it, the two configure surfaces having drifted apart; the panel reported a hand-set level
+  as "ignored" on a route where the engine sends it; a `dispatch` child was never registered in
+  flight, so teardown could not abort it and the capacity figures under-counted it; `childSignal`
+  leaked one abort listener per run onto the session-scoped caller signal; and a delegation label
+  lost its route entirely when the route was long enough to fill the label.
+
+### Changed
+
+- **One implementation of a preference patch, not two.** The panel route and
+  `orchestrate_configure` both accept the same vocabulary, so they now both call
+  `lib/preferences.js` — which is also what closes the `decisionCues` gap above, since that
+  parameter can no longer be advertised by one surface and unimplemented by the other.
+
 ### Fixed
 
 - **A review pass, fixing what it found.** `sync.cancel()` claimed to abort an in-flight sweep and

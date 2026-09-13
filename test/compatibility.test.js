@@ -7,6 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
+import { findDshInstall, materialize } from './helpers/host-install.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as compatibility from '../lib/compatibility.js';
@@ -24,6 +25,28 @@ import {
 } from '../lib/compatibility.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const HOST = findDshInstall();
+
+/**
+ * A copy of the plugin materialized beside the installed host tree, so
+ * `@deepseek-ai/dsh` resolves from it exactly as it does for an installed plugin.
+ *
+ * These checks used to skip on a bare checkout — "no DSH installation is present"
+ * — which is precisely a checkout like this one, so the three of them had never
+ * run. Materializing is how the rest of the suite already exercises real host
+ * contracts.
+ */
+let scratchModule;
+async function onHost(t) {
+  if (HOST === undefined) {
+    t.skip('no DSH installation is present');
+    return undefined;
+  }
+  if (scratchModule === undefined) {
+    scratchModule = await materialize(HOST, 'compatibility.js', { manifest });
+  }
+  return scratchModule.module;
+}
 const manifest = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
 
 /** A context exposing a fully working host contract. */
@@ -188,8 +211,8 @@ test('an empty model pool refuses activation', async () => {
 });
 
 test('the gate performs NO model-listing network I/O', async (t) => {
-  // The gate resolves the running host, which a bare checkout cannot.
-  if (resolveDshVersion() === undefined) return t.skip('no DSH installation is present');
+  const host = await onHost(t);
+  if (host === undefined) return;
   // Regression, found by timing a real profile boot: the gate probed every
   // provider with listModels(), which for the bundled third-party provider is a
   // live HTTP request with a 10s timeout. That turned every boot into a
@@ -209,27 +232,29 @@ test('the gate performs NO model-listing network I/O', async (t) => {
   const logger = captureLogger();
   // Activation succeeds: a slow or offline provider is a runtime condition, not
   // an incompatibility, and it must never block boot.
-  await assertCompatible(ctx, logger);
+  await host.assertCompatible(ctx, logger);
   assert.equal(listingCalls, 0, 'the gate must not call listModels()');
 });
 
 test('a deployment with a provider route but no answering provider still activates', async (t) => {
-  if (resolveDshVersion() === undefined) return t.skip('no DSH installation is present');
+  const host = await onHost(t);
+  if (host === undefined) return;
   // The pool reports the failure as a problem when discovery runs; activation is
   // not the place to require a network answer.
   const ctx = healthyContext({
     llm: { listModels: async () => { throw new Error('offline'); } },
   });
   const logger = captureLogger();
-  const result = await assertCompatible(ctx, logger);
+  const result = await host.assertCompatible(ctx, logger);
   assert.equal(result.runningVersion !== undefined || result.range !== undefined, true);
 });
 
 test('a provider registered without a usable id is refused', async (t) => {
-  if (resolveDshVersion() === undefined) return t.skip('no DSH installation is present');
+  const host = await onHost(t);
+  if (host === undefined) return;
   const ctx = healthyContext({ llm: { listProviders: () => [{ name: 'no id here' }] } });
   await assert.rejects(
-    () => assertCompatible(ctx, captureLogger()),
+    () => host.assertCompatible(ctx, captureLogger()),
     /No LLM provider route is registered/,
   );
 });

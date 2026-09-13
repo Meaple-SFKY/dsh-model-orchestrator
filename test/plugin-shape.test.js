@@ -3,6 +3,7 @@
  * bundle's module-loader contract, and the tool schemas the host will accept.
  */
 import test from 'node:test';
+import { findDshInstall } from './helpers/host-install.js';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -17,58 +18,6 @@ const manifest = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
 const patchText = readFileSync(join(ROOT, 'cordis.patch.yml'), 'utf8');
 const clientSource = readFileSync(join(ROOT, 'lib', 'client.js'), 'utf8');
 
-/**
- * Locate the installed DSH tree.
- *
- * The plugin is developed outside the harness, so its checkout cannot resolve
- * `@deepseek-ai/*` on its own — that only works once the package is installed
- * into a profile. Tests that must exercise the real host contract therefore
- * locate the installation explicitly, by walking up from this repo and by
- * checking the Node installation's own `node_modules` (where a global `dsh`
- * lives). An explicit override is honoured first.
- *
- * @returns the DSH package directory, or `undefined`.
- */
-function findDshInstall() {
-  const override = process.env.DSH_TEST_HOST
-  if (typeof override === 'string' && override !== '') return override
-
-  const candidates = []
-  // 1. An ancestor node_modules (a workspace checkout that has one).
-  let directory = ROOT
-  for (let depth = 0; depth < 8; depth += 1) {
-    candidates.push(join(directory, 'node_modules', '@deepseek-ai', 'dsh'))
-    const parent = dirname(directory)
-    if (parent === directory) break
-    directory = parent
-  }
-  // 2. The Node installation's global node_modules, beside this executable.
-  const executable = process.execPath
-  if (typeof executable === 'string' && executable !== '') {
-    const binDirectory = dirname(executable)
-    candidates.push(join(binDirectory, '..', 'lib', 'node_modules', '@deepseek-ai', 'dsh'))
-    candidates.push(join(binDirectory, 'node_modules', '@deepseek-ai', 'dsh'))
-  }
-  // 3. An installed profile under a harness home.
-  for (const home of [process.env.DSH_HOME, join(homedir(), '.dsh')]) {
-    if (typeof home !== 'string' || home === '') continue
-    try {
-      for (const entry of readdirSync(join(home, 'profiles'))) {
-        candidates.push(join(home, 'profiles', entry, 'node_modules', '@deepseek-ai', 'dsh'))
-      }
-    } catch {
-      // No profiles directory.
-    }
-  }
-  for (const candidate of candidates) {
-    try {
-      if (existsSync(join(candidate, 'package.json'))) return candidate
-    } catch {
-      // Try the next candidate.
-    }
-  }
-  return undefined
-}
 
 /**
  * The host tool compiler, or `undefined` when no DSH installation is present.

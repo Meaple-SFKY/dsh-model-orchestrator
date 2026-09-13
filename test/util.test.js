@@ -118,3 +118,19 @@ test('a delegation label always carries its route, even when the name is long', 
   assert.equal(label.slice(0, marker), 'Data visualization');
   assert.equal(label.slice(marker + DELEGATION_LABEL_MARKER.length), 'commandcode/gpt-5.6-sol');
 });
+
+test('a delegation label keeps its route even when the route is very long', () => {
+  // The route used to be appended unbounded, so a route near the limit left no room
+  // for the name, the composed label exceeded the limit, and the spawn path's own
+  // truncation cut the tail — destroying the one fact the label exists to carry.
+  const route = `provider/${'x'.repeat(200)}`;
+  const label = delegationLabel('Data visualization', route);
+  assert.ok(label.length <= 120, `label must fit the limit, got ${label.length}`);
+  assert.ok(label.includes(DELEGATION_LABEL_MARKER), 'the marker must survive');
+  const suffix = label.slice(label.lastIndexOf(DELEGATION_LABEL_MARKER) + DELEGATION_LABEL_MARKER.length);
+  // The route is bounded with a reserve for the marker and a readable name, so what
+  // follows the marker is the truncated route — and it is still the ROUTE, which is
+  // the point: a prefix of the real route beats a label that lost it entirely.
+  assert.equal(suffix, truncate(route, 100), 'the route is what follows the marker, bounded');
+  assert.ok(suffix.length > 8, 'and enough of it to identify the route');
+});

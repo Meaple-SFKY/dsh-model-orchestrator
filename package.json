@@ -18,6 +18,7 @@
     "cordis.patch.yml",
     "compatibility.json",
     "README.md",
+    "README.zh.md",
     "CHANGELOG.md",
     "LICENSE"
   ],
@@ -72,8 +73,8 @@
     }
   },
   "scripts": {
-    "test": "node --test test/",
-    "check": "node scripts/check-compat.mjs && node --test test/"
+    "test": "node --test \"test/*.test.js\"",
+    "check": "node scripts/check-compat.mjs && node --test \"test/*.test.js\""
   },
   "publishConfig": {
     "access": "public",

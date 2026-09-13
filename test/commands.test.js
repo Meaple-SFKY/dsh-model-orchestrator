@@ -192,3 +192,24 @@ test('the directive names the failure it prevents', () => {
   assert.match(text, /default model/, 'the directive must say why native delegation is wrong here');
   assert.ok(statusText(undefined).startsWith('Model Orchestrator — mode auto'));
 });
+
+test('status reports the division of labour and the researched facts when they exist', () => {
+  // The command used to report mode/pool/capabilities/in-flight, none of which
+  // explains WHY a model was chosen — while `orchestrate_status` reported more.
+  const bare = statusText({ mode: 'auto', poolSize: 7, capabilityCount: 24, inFlight: 0 });
+  assert.equal(bare.includes('assignments:'), false, 'an empty table is not news');
+  assert.equal(bare.includes('researched:'), false, 'nor is a deployment without Sync');
+
+  const rich = statusText({
+    mode: 'guided',
+    poolSize: 7,
+    capabilityCount: 24,
+    inFlight: 1,
+    assignments: { count: 3, unresolved: [{ key: 'a', target: 'b' }], unassigned: ['p/x'] },
+    researchedCount: 5,
+    researchUnmatched: 2,
+  });
+  assert.match(rich, /assignments: 3, 1 unresolved, 1 route\(s\) unassigned/);
+  assert.match(rich, /researched: 5 route\(s\), 2 unconfirmed/);
+  assert.match(rich, /mode guided/);
+});

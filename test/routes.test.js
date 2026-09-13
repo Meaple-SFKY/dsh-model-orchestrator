@@ -873,3 +873,38 @@ test('a sync runner that throws while starting is reported, not absorbed by the 
     d.cleanup();
   }
 });
+
+test('a hand-set level on an automatic route is reported as applied, not ignored', async () => {
+  // The panel called it "ignored" while the engine sent it — a contradiction
+  // between what the user was told and what the child did.
+  const d = deps();
+  try {
+    Object.defineProperty(d.pool, 'models', {
+      value: () => [
+        {
+          route: 'p1/auto',
+          provider: 'p1',
+          model: 'auto',
+          name: 'Auto (CC)',
+          facts: { reasoningMode: 'automatic' },
+          derived: { hasReasoning: false },
+        },
+      ],
+      configurable: true,
+    });
+    d.store.update((state) => {
+      state.preferences.reasoningEffort = { 'p1/auto': 'high' };
+    });
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const answer = exchange({ method: 'GET' });
+    await server.routes.get(`${ROUTE_PREFIX}/state`).handler(answer.req, answer.res);
+    const model = answer.captured.body.pool.models[0];
+    assert.equal(model.reasoningEffort, 'high', 'it is applied, and the panel must say so');
+    assert.equal(model.effortIgnored, undefined, 'it must not also be reported as ignored');
+    assert.equal(model.reasoningMode, 'automatic', 'so the client renders the manual form');
+  } finally {
+    d.cleanup();
+  }
+});

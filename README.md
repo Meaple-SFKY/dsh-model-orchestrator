@@ -1,5 +1,7 @@
 # dsh-model-orchestrator
 
+English | [中文](README.zh.md)
+
 **A generic Model Orchestrator for the DeepSeek Harness.** It discovers the models the
 running harness actually has, works out what each one is evidenced to be good at, and
 routes each unit of work to the best available one — so you never have to decide which
@@ -21,7 +23,7 @@ specific to any business domain.
 | **Two modes** | **Auto** infers what the task needs. **Guided** seeds matching with the capability areas you select for the session. |
 | **Orchestration** | Simple work runs directly. Focused work goes to one specialist subagent. Complex multi-domain work is orchestrated across several, with every expert result returned to the calling agent. |
 | **Captain** | The captain is a **role**, not a model binding: the task owner that understands, decomposes, dispatches, aggregates, verifies, and closes. Its route is chosen by the matcher from the live pool. |
-| **UI** | A `Model Orchestrator` settings page plus a compact per-session routing strip. Automation by default; everything is adjustable. |
+| **UI** | A `Model Orchestrator` settings page, and an Orchestrator board beside `Chat` and `Trajectory` showing the session's delegations. Automation by default; everything is adjustable. |
 | **Persistence** | Preferences, learned capability descriptors, and per-route calibrations. **Never the model pool.** |
 | **Compatibility** | Refuses to activate against an unsupported host, with a precise reason. No silent degradation. |
 
@@ -92,8 +94,7 @@ You can also steer it explicitly:
 - **`/model-orchestrator <task>`** — route one task through the orchestrator, whatever the
   agent would otherwise have decided. See below.
 - **Settings → Model Orchestrator** — mode, capability areas, cost preference,
-  parallelism, route allow/deny lists, live pool, routing preview, recent runs.
-- **The routing strip above the composer** — the current mode and live pool at a glance.
+  parallelism, route allow/deny lists, live pool, routing preview, capability assignments.
 
 ### The `/model-orchestrator` command
 
@@ -128,7 +129,7 @@ only registered when the deployment mounts the `commands` service.
 | `orchestrate_models` | The models that actually exist right now, with the evidence behind each profile. |
 | `orchestrate_capabilities` | The capability vocabulary, including anything learned. |
 | `orchestrate_configure` | Change preferences. |
-| `orchestrate_status` | Current mode, pool, mappings, and run history. |
+| `orchestrate_status` | Current mode, pool, mappings, the assignment table and the researched facts, and which cue groups are still built-in. |
 
 ## Which models are in the pool
 
@@ -360,7 +361,7 @@ independently.
 1. The declared range admits the running DSH version (resolved from the installed tree and
    evaluated with the host's own `semver`).
 2. Every required Service **and method** is present by name.
-3. At least one provider answers a model listing.
+3. At least one provider **route** with a usable id is registered — deliberately not a model listing, which can be a network round trip (see *Performance*).
 
 If any check fails, the plugin registers **no** tool, prompt section, or route, logs a
 precise reason naming the requirement and what was found, and throws so the row fails
@@ -504,7 +505,7 @@ route names, reasoning-effort ids, and version strings like `0.1.5-rc.1` are dat
 shared identifiers, so they appear verbatim in every language. Only explanatory prose is
 translated.
 
-Both are served by the host over three same-origin routes (`state`, `configure`, `plan`).
+Both are served by the host over same-origin routes: `state`, `configure`, `plan`, `tree` (the board's delegation graph) and `sync` (the research sweep).
 The browser half cannot enumerate models itself — the LLM listing surface is host-only —
 so the panel reads the real pool from the host and never guesses.
 
@@ -702,7 +703,7 @@ pgrep -fa 'dsh --profile'
 ## Development
 
 ```sh
-node --test "test/*.test.js"   # 283 tests, no host required
+node --test "test/*.test.js"   # 293 tests, no host required
 node scripts/check-compat.mjs  # host compatibility report
 ```
 

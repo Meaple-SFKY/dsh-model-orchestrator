@@ -12,6 +12,7 @@
  * they do when it is installed.
  */
 import test from 'node:test';
+import { findDshInstall } from './helpers/host-install.js';
 import assert from 'node:assert/strict';
 import {
   copyFileSync,
@@ -29,39 +30,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Locate the installed DSH tree, matching the plugin-shape test's search. */
-function findDshInstall() {
-  const override = process.env.DSH_TEST_HOST;
-  if (typeof override === 'string' && override !== '') return override;
-  const candidates = [];
-  let directory = ROOT;
-  for (let depth = 0; depth < 8; depth += 1) {
-    candidates.push(join(directory, 'node_modules', '@deepseek-ai', 'dsh'));
-    const parent = dirname(directory);
-    if (parent === directory) break;
-    directory = parent;
-  }
-  const executable = process.execPath;
-  if (typeof executable === 'string' && executable !== '') {
-    const bin = dirname(executable);
-    candidates.push(join(bin, '..', 'lib', 'node_modules', '@deepseek-ai', 'dsh'));
-    candidates.push(join(bin, 'node_modules', '@deepseek-ai', 'dsh'));
-  }
-  for (const home of [process.env.DSH_HOME, join(homedir(), '.dsh')]) {
-    if (typeof home !== 'string' || home === '') continue;
-    try {
-      for (const entry of readdirSync(join(home, 'profiles'))) {
-        candidates.push(join(home, 'profiles', entry, 'node_modules', '@deepseek-ai', 'dsh'));
-      }
-    } catch {
-      // No profiles directory.
-    }
-  }
-  for (const candidate of candidates) {
-    if (existsSync(join(candidate, 'package.json'))) return candidate;
-  }
-  return undefined;
-}
 
 /**
  * Materialize the plugin so its host imports resolve, then import a module.
