@@ -416,3 +416,66 @@ test('a malformed per-unit entry is dropped rather than inventing a target', () 
   });
   assert.deepEqual(analysis.unitModelPreference, [{ target: 'multimodal', routes: [{ route: 'p1/m1', reason: undefined }] }]);
 });
+
+test('CJK keywords match contiguously, never as a bag of characters', () => {
+  // Regression: the tokenizer emits one token per CJK character, so treating a
+  // keyword as a token set made 图表 match any text containing both 图 and 表
+  // anywhere, and made a single character match every compound containing it.
+  const taxonomy = new Taxonomy();
+
+  // 柱状图 contains 图 but is a bar chart, not an image to read.
+  const chart = analysisFromText(taxonomy, '用 pandas 读取 csv 并画一张柱状图');
+  assert.equal(
+    chart.requirements.some((req) => req.needsImageInput === true),
+    false,
+    'plotting a bar chart must not be read as a request to READ an image',
+  );
+  assert.ok(
+    chart.requirements.some((req) => req.capability === 'data.analysis'),
+    'it is a data task instead',
+  );
+
+  // And the English equivalent always agreed; the defect was Chinese-only.
+  const english = analysisFromText(taxonomy, 'plot a bar chart of the monthly revenue');
+  assert.equal(english.requirements.some((req) => req.needsImageInput === true), false);
+});
+
+test('a task that really points at visual material still needs an image route', () => {
+  const taxonomy = new Taxonomy();
+  for (const task of ['看看这张图里有什么', '请读取截图里的报错信息', '分析附图里的表格', '生成一张插画风格的图片']) {
+    const analysis = analysisFromText(taxonomy, task);
+    assert.ok(
+      analysis.requirements.some((req) => req.needsImageInput === true),
+      `"${task}" must require a route that can read visual material`,
+    );
+  }
+  for (const task of ['画一个流程图说明调用链', '做成可视化看板']) {
+    const analysis = analysisFromText(taxonomy, task);
+    assert.equal(
+      analysis.requirements.some((req) => req.needsImageInput === true),
+      false,
+      `"${task}" draws a diagram from data; it must not require an image route`,
+    );
+  }
+});
+
+test('data.visualization is a data capability, not a vision capability', () => {
+  // Charting from data needs coding and numeric work, not image INPUT. Keeping
+  // them apart is what stops a text-only coding model being rejected for a
+  // plotting task, and a vision model being chosen to write matplotlib code.
+  const taxonomy = new Taxonomy();
+  const visualization = taxonomy.get('data.visualization');
+  assert.equal(visualization.group, 'data', 'charting belongs to the data cluster');
+  assert.equal(
+    visualization.signals.some((sig) => sig.type === 'modality' && sig.required === true),
+    false,
+    'and requires no image input',
+  );
+  const screenshot = taxonomy.get('multimodal.screenshot');
+  assert.equal(screenshot.group, 'multimodal');
+  assert.equal(
+    screenshot.signals.some((sig) => sig.type === 'modality' && sig.required === true),
+    true,
+    'the vision capability is the one that requires an image',
+  );
+});

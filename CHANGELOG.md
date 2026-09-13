@@ -7,6 +7,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Chinese charting task was read as a request to READ an image.** The tokenizer emits one
+  token per CJK character, so a keyword was matched as a set of characters rather than a
+  phrase: 图表 matched any text containing both 图 and 表 anywhere, and the single character
+  图 in the vision keywords matched every compound containing it. `用 pandas 读取 csv 并画一张
+  柱状图` therefore required an image-capable route, wrongly excluding every text-only model
+  from a task that needs coding and numeric work. CJK keywords are now matched as contiguous
+  substrings, the over-broad single character is gone, and genuinely visual phrasings
+  (这张图, 看图, 附图, 截图, 图片) are named explicitly. The English path always agreed; the
+  defect was Chinese-only.
+
+
 ### Added
 
 - **`analysis.unitModelPreference` routes units individually.** A whole-task preference is
