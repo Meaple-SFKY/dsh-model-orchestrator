@@ -10,6 +10,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { declaredDshRange } from '../lib/compatibility.js';
+import { DELEGATION_LABEL_MARKER } from '../lib/util.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
@@ -354,6 +355,22 @@ test('the client bundle declares no JSX and no undeclared imports', () => {
   assert.ok(!/<[A-Za-z][\s/>]/.test(clientSource.replace(/=>/g, '')), 'no JSX element syntax');
   const requested = [...clientSource.matchAll(/require\(['"]([^'"]+)['"]\)/g)].map((match) => match[1]);
   assert.deepEqual([...new Set(requested)], ['react'], 'only react may be requested at runtime');
+});
+
+test('the board parses the very marker the host-side label builder writes', () => {
+  // The client bundle imports nothing, so this one string is duplicated by
+  // necessity: the host writes it into every delegation label and the board
+  // splits the label on it to recover the route. If they ever diverge, every
+  // delegation silently loses its route on the board — which is precisely the
+  // defect this pair exists to prevent.
+  assert.ok(
+    clientSource.includes(`'${DELEGATION_LABEL_MARKER}'`),
+    `the client bundle must split labels on ${JSON.stringify(DELEGATION_LABEL_MARKER)}`,
+  );
+  assert.ok(
+    clientSource.includes(`lastIndexOf(ROUTE_MARKER)`),
+    'the client must locate the marker with lastIndexOf, so a name containing it cannot win',
+  );
 });
 
 test('every shipped tool parameter spec compiles under the real DSL', async () => {

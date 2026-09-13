@@ -103,6 +103,34 @@ drainContinuableChildren(parent: Agent, childIds, ...): Promise<void>
 `SubagentStartRequest` (one-shot): `{ label?, prompt: ContentBlock[], parent: Agent,
 signal, agentOptions?: AgentOptions, outputSchema?, maxDepth?, toolFilter?, persona? }`.
 
+### 1.5.1 The listing reports no route — the label is the only record
+
+Verified against the host types (`dsh-subagent/lib/types/control-types.d.ts` and
+`projection-types.d.ts`). `SubagentListEntry` carries exactly:
+
+```ts
+{ kind: 'child'; id; activity: 'running'|'inactive'; hasChildren: boolean }
+  & ({ mode: 'one-shot'; label?: string } | { mode: 'continuable'; label: string })
+```
+
+`SubagentDescendantListEntry` adds only `parentId` and `depth`. The projection the listing is
+served from (`SubagentIdentityProjection`) folds `mode` and `label` and nothing else.
+
+A child's own `subagent/descriptor` event **does** carry the route — `{ version, mode, provider,
+label, agentProvider?, agentModel?, agentReasoningEffort?, persona?, toolFilter? }` — but it is
+not folded into that projection. So the board cannot read a delegation's route from the listing,
+and a plugin that wants to show one must write it into the `label` at spawn time. Observed
+descriptors confirm the split is not incidental:
+
+| Delegation kind | `label` carries the route | `agentProvider`/`agentModel` present |
+|---|---|---|
+| `orchestrate_run` (one-shot) | yes, `<name> via <route>` | **no** |
+| native `subagent` tool (continuable) | no, just the tool's `description` | yes |
+
+The two sources are disjoint: the route is recorded exactly where the listing will not show it.
+`delegationLabel` (host) and the board's `lastIndexOf(' via ')` (client) are therefore a matched
+pair, and `test/plugin-shape.test.js` asserts they still name the same marker.
+
 `AgentOptions` (`dsh-agent/lib/types/runtime-types.d.ts`) is exactly:
 
 ```ts

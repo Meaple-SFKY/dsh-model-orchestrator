@@ -294,11 +294,14 @@ with the basis behind each assessment, preferences, and a routing preview.
  It is the
 board for the session you are looking at, and it has three parts:
 
-- **Delegation graph** — every subagent the orchestrator started for this task, indented
-  under the agent that started it, with its mode (`one-shot` / `continuable`) and live
-  activity. Topology is read from the harness's own durable session tree
-  (`ctx.subagents.listDescendants`), refreshed every few seconds, so it shows the
-  delegations that actually exist rather than a mirrored copy.
+- **Delegation graph** — every subagent of this session, indented under the agent that
+  started it, with its mode (`one-shot` / `continuable`) and live activity. A delegation the
+  orchestrator routed shows the model it selected; one DSH started by itself is marked a
+  **native delegation**, because the orchestrator never chose a model for it. Topology is read
+  from the harness's own durable session tree (`ctx.subagents.listDescendants`), refreshed
+  every few seconds, so it shows the delegations that actually exist rather than a mirrored
+  copy. The route comes from the delegation's own label — the host's listing reports no model —
+  so both `orchestrate_run` and `orchestrate_dispatch` write `<name> via <route>`.
 - **Stats** — how many delegations there are, how many are running, and how many branches.
 - **Routing capacity** — the current mode, live pool size, in-flight delegations, and the
   capability count.
@@ -465,7 +468,7 @@ pgrep -fa 'dsh --profile'
 ## Development
 
 ```sh
-node --test "test/*.test.js"   # 164 tests, no host required
+node --test "test/*.test.js"   # 200 tests, no host required
 node scripts/check-compat.mjs  # host compatibility report
 ```
 

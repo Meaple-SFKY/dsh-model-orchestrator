@@ -9,7 +9,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { toJsonSafe, uint, tokenize, routeKey, compactRoute, truncate, contentToText, uniqueStrings } from '../lib/util.js';
+import { toJsonSafe, uint, tokenize, routeKey, compactRoute, truncate, contentToText, uniqueStrings, delegationLabel, DELEGATION_LABEL_MARKER } from '../lib/util.js';
 
 test('an explicitly-undefined property is dropped, not carried', () => {
   const projected = toJsonSafe({ ok: true, storage: { path: '/tmp/x', lastError: undefined } });
@@ -94,4 +94,27 @@ test('truncate and contentToText behave at the boundaries', () => {
   assert.equal(truncate('abcdef', 4), 'abc…');
   assert.equal(contentToText([{ type: 'text', text: 'a' }, { type: 'reasoning', text: 'b' }, { type: 'text', text: 'c' }]), 'a\nc');
   assert.equal(contentToText(undefined), '');
+});
+
+test('a delegation label always carries its route, even when the name is long', () => {
+  // The label is the ONLY durable record of a child's route: the host's
+  // descendant listing reports `mode` and `label` and nothing about the model.
+  // So the route has to survive the tail truncation the spawn path applies.
+  const label = delegationLabel('Data visualization', 'commandcode/gpt-5.6-sol');
+  assert.equal(label, `Data visualization${DELEGATION_LABEL_MARKER}commandcode/gpt-5.6-sol`);
+  assert.ok(label.endsWith(`${DELEGATION_LABEL_MARKER}commandcode/gpt-5.6-sol`));
+
+  const long = delegationLabel('x'.repeat(400), 'p1/m1');
+  assert.ok(long.endsWith(`${DELEGATION_LABEL_MARKER}p1/m1`), 'the route must not be truncated away');
+  assert.ok(long.length <= 120, `the label must fit the spawn limit, got ${long.length}`);
+
+  // A name that is absent must still yield a parseable label, and must not
+  // repeat the route as both name and route.
+  const unnamed = delegationLabel(undefined, 'p1/m1');
+  assert.equal(unnamed, `m1${DELEGATION_LABEL_MARKER}p1/m1`);
+
+  // The parse the client board performs must recover exactly what was written.
+  const marker = label.lastIndexOf(DELEGATION_LABEL_MARKER);
+  assert.equal(label.slice(0, marker), 'Data visualization');
+  assert.equal(label.slice(marker + DELEGATION_LABEL_MARKER.length), 'commandcode/gpt-5.6-sol');
 });

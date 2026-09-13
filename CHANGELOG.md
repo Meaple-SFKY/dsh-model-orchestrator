@@ -9,6 +9,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`orchestrate_dispatch` delegations reached the board with no route.** The board recovers a
+  delegation's route from its label, because the host's descendant listing
+  (`ctx.subagents.listDescendants`) reports a child's `mode` and `label` and nothing about its
+  provider or model — the descriptor that does carry `agentProvider` / `agentModel` is not folded
+  into that listing. `orchestrate_run` wrote `<name> via <route>`; `orchestrate_dispatch` wrote a
+  bare name, so one plugin showed a route for one delegation kind and none for the other. Both
+  paths now build the label through a single `delegationLabel` helper, which bounds the name
+  *before* appending the route so the spawn path's tail truncation cannot erase it.
+
+### Changed
+
+- **The board no longer claims every node is orchestrator work.** It lists every subagent of the
+  session — including the ones DSH started by itself through the native `subagent` tool — while
+  its copy asserted that "each node is a subagent the orchestrator started". The description now
+  says what the board actually shows, and a delegation carrying no route is marked **native
+  delegation** (「原生委派」, "由 DSH 原生启动") instead of "route not recorded", which read as
+  lost data rather than as an accurate statement of provenance.
+
+### Fixed
+
 - **A Chinese charting task was read as a request to READ an image.** The tokenizer emits one
   token per CJK character, so a keyword was matched as a set of characters rather than a
   phrase: 图表 matched any text containing both 图 and 表 anywhere, and the single character

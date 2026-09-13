@@ -183,6 +183,14 @@ test('the child receives the original task and a specialist persona', async () =
     assert.match(request.persona, /specialist subagent/i);
     assert.equal(request.parent, CAPTAIN, 'the calling agent must be the parent');
     assert.ok(request.signal instanceof AbortSignal, 'a cancellation signal must be supplied');
+    // The board reads a delegation's route back out of its label, because the
+    // host's descendant listing reports a child's mode and label and no model.
+    // So the label must end with the route this engine chose.
+    assert.match(
+      request.label,
+      / via p1\/m1$/,
+      'the child label must carry the route the orchestrator selected',
+    );
   } finally {
     cleanup();
   }
@@ -282,6 +290,11 @@ test('dispatch routes by capability and honours an explicit route', async () => 
     });
     assert.equal(byCapability.ok, true);
     assert.equal(host.calls[0].request.agentOptions.model, 'reviewer');
+    assert.match(
+      host.calls[0].request.label,
+      / via p1\/reviewer$/,
+      'a dispatch must record its route in the label, exactly as a run does',
+    );
 
     const explicit = await engine.dispatch({
       task: 'Force this route.',
@@ -291,6 +304,11 @@ test('dispatch routes by capability and honours an explicit route', async () => 
     });
     assert.equal(explicit.ok, true);
     assert.equal(host.calls[1].request.agentOptions.model, 'builder');
+    assert.match(
+      host.calls[1].request.label,
+      / via p1\/builder$/,
+      'an explicit-route dispatch must record its route in the label too',
+    );
 
     const unknown = await engine.dispatch({
       task: 'x',
