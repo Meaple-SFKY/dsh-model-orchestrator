@@ -1,0 +1,97 @@
+/**
+ * Value-projection tests.
+ *
+ * The host validates a tool's canonical output with a strict lossless-JSON
+ * check that rejects an explicitly-`undefined` property. `JSON.stringify` hides
+ * that difference, so these assertions inspect the projected structure directly
+ * rather than its serialization — which is exactly how the defect escaped a
+ * round-trip check during development.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { toJsonSafe, uint, tokenize, routeKey, compactRoute, truncate, contentToText, uniqueStrings } from '../lib/util.js';
+
+test('an explicitly-undefined property is dropped, not carried', () => {
+  const projected = toJsonSafe({ ok: true, storage: { path: '/tmp/x', lastError: undefined } });
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(projected.storage, 'lastError'),
+    false,
+    'a property present as `undefined` must be absent after projection',
+  );
+  assert.deepEqual(projected, { ok: true, storage: { path: '/tmp/x' } });
+});
+
+test('undefined and functions become null inside arrays', () => {
+  const projected = toJsonSafe([1, undefined, () => {}, 'x']);
+  assert.deepEqual(projected, [1, null, null, 'x']);
+});
+
+test('non-finite numbers are normalized to null', () => {
+  assert.deepEqual(toJsonSafe({ a: NaN, b: Infinity, c: -Infinity, d: 1.5 }), {
+    a: null,
+    b: null,
+    c: null,
+    d: 1.5,
+  });
+});
+
+test('nested structures are projected recursively', () => {
+  const projected = toJsonSafe({
+    runs: [{ id: 'a', note: undefined }],
+    meta: { deep: { value: undefined, keep: 1 } },
+  });
+  assert.deepEqual(projected, { runs: [{ id: 'a' }], meta: { deep: { keep: 1 } } });
+});
+
+test('a cycle is broken rather than hanging', () => {
+  const value = { name: 'root' };
+  value.self = value;
+  const projected = toJsonSafe(value);
+  assert.equal(projected.name, 'root');
+  assert.equal(Object.prototype.hasOwnProperty.call(projected, 'self'), false);
+});
+
+test('a date is projected to its ISO string', () => {
+  const projected = toJsonSafe({ at: new Date('2026-01-02T03:04:05.000Z') });
+  assert.equal(projected.at, '2026-01-02T03:04:05.000Z');
+});
+
+test('plain data passes through unchanged', () => {
+  const value = { a: 1, b: 'two', c: true, d: null, e: [1, 2], f: { g: 'h' } };
+  assert.deepEqual(toJsonSafe(value), value);
+});
+
+test('uint accepts zero and rejects negatives', () => {
+  assert.equal(uint(0), 0, 'zero is a valid non-negative integer');
+  assert.equal(uint(5), 5);
+  assert.equal(uint(-1), undefined);
+  assert.equal(uint(1.5), undefined);
+  assert.equal(uint('5'), undefined);
+});
+
+test('tokenize handles latin words, digits, and CJK runs', () => {
+  assert.deepEqual(tokenize('Implement the Parser'), ['implement', 'the', 'parser']);
+  assert.deepEqual(tokenize('a b'), [], 'single characters are not useful tokens');
+  const cjk = tokenize('数据分析');
+  assert.ok(cjk.includes('数') && cjk.includes('据'), `expected CJK runes, got ${cjk.join(',')}`);
+});
+
+test('routeKey and compactRoute handle the provider/model split', () => {
+  assert.equal(routeKey('p1', 'm1'), 'p1/m1');
+  assert.equal(routeKey('p1', ''), undefined);
+  assert.equal(routeKey(undefined, 'm1'), undefined);
+  assert.equal(compactRoute('provider/model'), 'model');
+  assert.equal(compactRoute('vendor/group/model'), 'group/model');
+  assert.equal(compactRoute('bare'), 'bare');
+});
+
+test('uniqueStrings preserves first-seen order', () => {
+  assert.deepEqual(uniqueStrings(['b', 'a', 'b', '', undefined, 'a', 'c']), ['b', 'a', 'c']);
+});
+
+test('truncate and contentToText behave at the boundaries', () => {
+  assert.equal(truncate('abcdef', 10), 'abcdef');
+  assert.equal(truncate('abcdef', 4), 'abc…');
+  assert.equal(contentToText([{ type: 'text', text: 'a' }, { type: 'reasoning', text: 'b' }, { type: 'text', text: 'c' }]), 'a\nc');
+  assert.equal(contentToText(undefined), '');
+});

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "recommendedHost": "0.1.5-rc.1",
+  "declaredRange": "0.1.5-rc.1",
+  "supportedHosts": [
+    {
+      "version": "0.1.5-rc.1",
+      "track": "recommended"
+    },
+    {
+      "version": "0.1.5-rc.2",
+      "track": "compatible",
+      "note": "The shipped host packages report 0.1.5-rc.2 while the CLI reports 0.1.5-rc.1; both are supported."
+    }
+  ],
+  "requiredServices": ["llm", "subagents", "tools", "systemPrompt"],
+  "requiredServiceMethods": {
+    "llm": ["listProviders", "listModels", "resolveModelInfo", "resolveCallConfig"],
+    "subagents": ["list", "start", "getProvider"],
+    "tools": ["register"],
+    "systemPrompt": ["section"]
+  },
+  "optionalServices": ["workflowEngine", "webServer", "connection"],
+  "compatibilityBehaviour": {
+    "onIncompatibleHost": "refuse-activation",
+    "registersNothingWhenIncompatible": true,
+    "silentDegradation": false
+  },
+  "notes": [
+    "engines.dsh is the authoritative host range; dsh.engines.dsh mirrors it for marketplace discovery.",
+    "peerDependencies declare the host packages this plugin imports and are checked independently.",
+    "The plugin re-checks the host on every activation, so upgrading into an unsupported host is refused rather than run.",
+    "Run `node scripts/check-compat.mjs` for a standalone host-compatibility report."
+  ]
+}

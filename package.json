@@ -1,0 +1,90 @@
+{
+  "name": "dsh-model-orchestrator",
+  "version": "0.1.0",
+  "description": "Generic Model Orchestrator for DeepSeek Harness: discovers the live model pool, profiles real model capabilities, and routes each unit of work to the best available model. Auto and Guided modes, specialist subagents, multi-agent orchestration, a dynamic Captain, and a web control panel. Domain-agnostic.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./compatibility.json": "./compatibility.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "compatibility.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "dsh-model-orchestrator contributors"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "model-orchestrator",
+    "model-routing",
+    "multi-agent",
+    "subagent",
+    "capability-matching",
+    "llm"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24",
+    "dsh": "0.1.5-rc.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-agent": "0.1.5-rc.1 || 0.1.5-rc.2",
+    "@deepseek-ai/dsh-host-webserver": "0.1.5-rc.1 || 0.1.5-rc.2",
+    "@deepseek-ai/dsh-llm": "0.1.5-rc.1 || 0.1.5-rc.2",
+    "@deepseek-ai/dsh-subagent": "0.1.5-rc.1 || 0.1.5-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.1 || 0.1.5-rc.2",
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.1 || 0.1.5-rc.2",
+    "@deepseek-ai/dsh-workflow": "0.1.5-rc.1 || 0.1.5-rc.2",
+    "semver": "^7.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-workflow": {
+      "optional": true
+    }
+  },
+  "dsh": {
+    "engines": {
+      "dsh": "0.1.5-rc.1"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-host-webserver"
+      ]
+    }
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "check": "node scripts/check-compat.mjs && node --test test/"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/example/dsh-model-orchestrator.git"
+  },
+  "homepage": "https://github.com/example/dsh-model-orchestrator#readme",
+  "bugs": {
+    "url": "https://github.com/example/dsh-model-orchestrator/issues"
+  }
+}

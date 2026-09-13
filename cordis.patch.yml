@@ -1,0 +1,20 @@
+# dsh-model-orchestrator bundle patch.
+#
+# Mounts the Model Orchestrator into the host composition of a dsh profile. The
+# plugin registers its `orchestrate_*` tools into the shared `tools` registry and
+# one routing-policy section into the system prompt, so every session of the
+# profile can route work to the best available model through natural language.
+#
+# It publishes no service, so it needs no isolate realm, and it consumes only
+# host capabilities (`llm`, `subagents`, `tools`, `systemPrompt`).
+#
+# Install: `dsh plugin --profile <name> add <this package>`
+# (an npm name, a tarball, or a local path). The `dsh plugin` command pnpm-installs
+# the package into the profile and reconciles it into the profile's
+# `dsh.profile.bundles` layer list.
+#
+# `name` must stay in sync with the package's `name` field. It is quoted because
+# `@` is a reserved indicator in YAML and cannot open a plain scalar.
+- insert:
+    - id: model-orchestrator
+      name: 'dsh-model-orchestrator'
