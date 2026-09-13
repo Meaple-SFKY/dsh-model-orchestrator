@@ -64,7 +64,19 @@ dsh plugin --profile <name> add dsh-model-orchestrator
 dsh plugin --profile web add /path/to/dsh-model-orchestrator
 ```
 
+在该包发布到 npm 之前，可以直接从仓库安装：
+
+```sh
+dsh plugin --profile <name> add github:Meaple-SFKY/dsh-model-orchestrator
+```
+
 这个 bundle patch 会向该 profile 的 host composition 挂载一行，把 `orchestrate_*` 工具注册进共享工具注册表，向系统提示词贡献一个路由策略小节，并提供控制面板路由。安装后请重启该 profile，让宿主加载新的 bundle。
+
+**先核对宿主版本范围。** 本版本声明 `engines.dsh = "0.1.5-rc.1"`，面对其他版本会**拒绝激活**并给出原因与恢复方式。安装前（或在 CI 中）可用这条命令核对：
+
+```sh
+node scripts/check-compat.mjs
+```
 
 **它不发布任何服务**，因此不需要 `isolate` realm，只消费宿主能力（`llm`、`subagents`、`tools`、`systemPrompt`）。
 

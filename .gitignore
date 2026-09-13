@@ -1,0 +1,9 @@
+node_modules/
+*.tgz
+
+# Scratch space for local investigation; nothing here is a deliverable.
+tmp/
+
+.DS_Store
+*.log
+coverage/

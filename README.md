@@ -75,10 +75,24 @@ Or from a local checkout:
 dsh plugin --profile web add /path/to/dsh-model-orchestrator
 ```
 
+From the repository, before this package is published to npm:
+
+```sh
+dsh plugin --profile <name> add github:Meaple-SFKY/dsh-model-orchestrator
+```
+
 The bundle patch mounts one row into the profile's host composition, registers the
 `orchestrate_*` tools into the shared tool registry, contributes one routing-policy
 section to the system prompt, and serves the control-panel routes. Restart the profile
 after installing so the host picks up the new bundle.
+
+**Check the host range first.** This release declares `engines.dsh = "0.1.5-rc.1"` and refuses
+to activate against anything else, with the reason and a recovery line. Verify before installing,
+or in CI, with:
+
+```sh
+node scripts/check-compat.mjs
+```
 
 **It publishes no service**, so it needs no `isolate` realm, and it only consumes host
 capabilities (`llm`, `subagents`, `tools`, `systemPrompt`).
