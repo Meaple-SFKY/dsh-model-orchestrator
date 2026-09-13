@@ -5,6 +5,17 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] — 2026-09-14
+
+### Fixed
+
+- **`foldedIntoAnalysis` and `unusedArguments` disagreed, one release after the fix that
+  introduced them.** Verifying 0.2.2 against the reported call shape showed `unitModelPreference`
+  listed in BOTH — folded and used, and simultaneously reported as unrecognised. A key that was
+  folded is excluded from `unusedArguments` now, and the test asserts the two lists are mutually
+  exclusive. My own output contradicting itself is precisely the class of defect this release pair
+  set out to remove, so it gets a release rather than a quiet amend: v0.2.2 stays as tagged.
+
 ## [0.2.2] — 2026-09-14
 
 ### Fixed
@@ -612,6 +623,7 @@ Initial release. Generic, domain-agnostic Model Orchestrator for DSH `0.1.5-rc.1
 - Only `spawn` and `fork` subagent providers are consulted; any registered provider that
   advertises the `agentOptions` capability works.
 
+[0.2.3]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.1.0...v0.2.0

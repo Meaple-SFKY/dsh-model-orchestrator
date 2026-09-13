@@ -385,6 +385,11 @@ test('a per-unit preference at the TOP level is folded in and reported', async (
     );
     assert.equal(value.ok, true);
     assert.deepEqual(value.foldedIntoAnalysis, ['unitModelPreference'], 'the fold must be reported');
+    assert.equal(
+      value.unusedArguments,
+      undefined,
+      'a folded argument is USED, so it must not also be reported unused',
+    );
     const unit = value.units.find((entry) => entry.capabilityId === 'document.processing');
     assert.equal(unit.route, 'p1/m-fast', 'the folded preference must actually decide the route');
   } finally {

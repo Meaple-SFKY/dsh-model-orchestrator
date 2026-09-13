@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-orchestrator",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Generic Model Orchestrator for DeepSeek Harness: discovers the live model pool, profiles real model capabilities, and routes each unit of work to the best available model. Auto and Guided modes, specialist subagents, multi-agent orchestration, a dynamic Captain, and a web control panel. Domain-agnostic.",
   "type": "module",
   "main": "lib/index.js",
