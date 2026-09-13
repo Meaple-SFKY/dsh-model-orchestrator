@@ -483,9 +483,22 @@ test('the plugin never introduces a competing task or progress surface', async (
     );
   }
 
-  // The panel renders routing capacity, never a task list.
+  // The panel renders routing capacity, never a task list. The capacity FIGURES
+  // moved to the Orchestrator board, which shows them per session; the settings
+  // page keeps only the boundary note, so the board is what must carry them now.
   assert.ok(!/RunHistory/.test(clientSource), 'the panel must not render a run/task history');
-  assert.ok(/RoutingCapacity/.test(clientSource), 'the panel must render routing capacity instead');
+  assert.ok(
+    /CapacityNote/.test(clientSource) && /capacity\.note/.test(clientSource),
+    'the settings page must keep the no-task-state note',
+  );
+  assert.ok(
+    /dshmo-cardhead[\s\S]{0,120}capacity\.title/.test(clientSource),
+    'the board must show the routing-capacity figures',
+  );
+  assert.ok(
+    !/RoutingCapacity/.test(clientSource),
+    'the duplicated settings-page capacity card must be gone, not merely unused',
+  );
   assert.ok(
     !/(taskList|TaskList|\.tasks\b|\.steps\b)/.test(clientSource),
     'the panel must not read task or step state',

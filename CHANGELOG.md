@@ -9,6 +9,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The duplicated routing-capacity card is gone from the settings page.** Its three figures
+  (in-flight, calibrations, capabilities) restated what the Orchestrator board already shows for
+  the session being looked at. The one line worth keeping — that task lists, step status, and
+  progress are DSH-native and the orchestrator keeps no task state of its own — stays as a plain
+  note; it answers a boundary question, it is not a statistic. The board, not the settings page,
+  is now the single place those figures live.
+- **The model pool's Reasoning column no longer stretches the table.** The shared input style
+  grows to a 180px minimum, which is right for a free-text field and wrong for a column whose
+  content is at most four characters; the selector is now 84px. The cost preference's hint also
+  states its real limit: it shapes tie-breaks between routes of differing measured tier, so with
+  a pool where every route shares one tier it does nothing at all (see the reasoning-effort
+  entry below for why cost cannot be measured here).
+
+### Changed
+
 - **The capability areas are now gated on Guided mode, and reveal themselves.** They were
   rendered unconditionally, so in Auto the page offered a control that changed nothing — a list
   whose contents are never consulted reads as broken. The panel is now collapsed in Auto behind
