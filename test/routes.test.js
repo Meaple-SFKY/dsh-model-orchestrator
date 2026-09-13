@@ -11,6 +11,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ROUTE_PREFIX, installControlRoutesDeferred } from '../lib/routes.js';
+import { exchange, fakeContext, fakeServer } from './helpers/fake-context.js';
 import { OrchestratorStore } from '../lib/persistence.js';
 import { ModelPool } from '../lib/discovery.js';
 import { Taxonomy } from '../lib/taxonomy.js';
@@ -39,73 +40,6 @@ function deps() {
     subagents: undefined,
     cleanup: () => rmSync(directory, { recursive: true, force: true }),
   };
-}
-
-/** A web-server stand-in recording registrations. */
-function fakeServer() {
-  const routes = new Map();
-  const disposed = [];
-  return {
-    routes,
-    disposed,
-    register(route) {
-      routes.set(route.path, route);
-      const dispose = () => disposed.push(route.path);
-      return dispose;
-    },
-  };
-}
-
-/** A context exposing a web server by fast path or by injection. */
-function fakeContext(server, { injectable = true, services = {} } = {}) {
-  const injections = [];
-  const ctx = {
-    get(name) {
-      if (name === 'webServer') return server;
-      if (name in services) return services[name];
-      return undefined;
-    },
-    inject(names, callback) {
-      injections.push(names);
-      if (injectable) callback({ webServer: server, get: ctx.get, effect: (factory) => factory() });
-      return () => {};
-    },
-  };
-  return { ctx, injections };
-}
-
-/** A request/response pair capturing the handler's decision. */
-function exchange({ method = 'GET', headers = { host: '127.0.0.1:3080' }, body } = {}) {
-  const chunks = body === undefined ? [] : [Buffer.from(JSON.stringify(body))];
-  const req = {
-    method,
-    url: '/',
-    headers,
-    on(event, handler) {
-      if (event === 'data') for (const chunk of chunks) handler(chunk);
-      if (event === 'end') handler();
-      return req;
-    },
-    off() {},
-    once() {},
-  };
-  const captured = { status: undefined, headers: undefined, body: undefined };
-  const res = {
-    writeHead(status, responseHeaders) {
-      captured.status = status;
-      captured.headers = responseHeaders;
-    },
-    end(payload) {
-      if (payload !== undefined) {
-        try {
-          captured.body = JSON.parse(payload);
-        } catch {
-          captured.body = payload;
-        }
-      }
-    },
-  };
-  return { req, res, captured };
 }
 
 test('the routes mount on the fast path when a web server already exists', () => {
@@ -196,10 +130,9 @@ test('the harness connection overlay is preferred when present', async () => {
   try {
     const server = fakeServer();
     const gate = { requestRejection: () => 401 };
-    const ctx = {
-      get: (name) => (name === 'webServer' ? server : name === 'connection' ? gate : undefined),
-      inject: () => () => {},
-    };
+    // `connection` is an optional overlay, so it arrives as a service rather than
+    // through the plugin's own inject list.
+    const { ctx } = fakeContext(server, { services: { connection: gate } });
     installControlRoutesDeferred(ctx, d);
     // A request that would pass the loopback fence is still rejected by the gate.
     const rejected = exchange();
@@ -448,6 +381,41 @@ test('a failing listing is reported as unavailable, not as an empty graph', asyn
     assert.equal(req.captured.status, 200);
     assert.equal(req.captured.body.ok, false);
     assert.match(req.captured.body.error, /projection registry/);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('the installer never probes a service property on its own context', () => {
+  // Regression, found by booting the plugin inside a real deployment: the plugin
+  // context throws on a non-injected name, so a "probe then fall back" shape
+  // crashes at activation. A strict context reproduces that contract, and the
+  // installer must satisfy it without reading `webServer` off its own context.
+  const d = deps();
+  try {
+    const server = fakeServer();
+    const { ctx, injections } = fakeContext(server, { strict: true });
+    const dispose = installControlRoutesDeferred(ctx, d);
+    assert.deepEqual(injections, [['webServer']], 'the web server is always acquired by injection');
+    assert.equal(server.routes.size, 3 + 1, 'all four routes mount');
+    dispose();
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('a deployment without a web server does not crash a strict context', () => {
+  const d = deps();
+  try {
+    // No server: the inject callback still runs (the harness supplies the
+    // context), and the installer must simply mount nothing.
+    const ctx = {
+      inject: () => () => {},
+      effect: (factory) => factory(),
+    };
+    const dispose = installControlRoutesDeferred(ctx, d);
+    assert.equal(typeof dispose, 'function');
+    dispose();
   } finally {
     d.cleanup();
   }
