@@ -254,7 +254,10 @@ upgrade; calibrations for routes that left the pool are pruned automatically.
 **Settings → Model Orchestrator** is the full page: mode, capability areas, the live pool
 with the basis behind each assessment, preferences, and a routing preview.
 
-**Orchestrator** is a Conversation view, a sibling of `Chat` and `Trajectory`. It is the
+**Orchestrator** is a Conversation view, a sibling of `Chat` and `Trajectory`:
+
+![The Orchestrator board showing two delegations on different models](docs/board-two-models.png)
+ It is the
 board for the session you are looking at, and it has three parts:
 
 - **Delegation graph** — every subagent the orchestrator started for this task, indented
