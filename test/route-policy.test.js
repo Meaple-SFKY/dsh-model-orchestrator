@@ -170,3 +170,97 @@ test('no model name, provider, or vendor is hardcoded in the policy logic', asyn
     );
   }
 });
+
+test('ModelPool narrows its discovery to the deployment policy end to end', async () => {
+  // The reported symptom: two providers advertise overlapping model families, so
+  // the panel showed near-duplicates. Here the policy is what should decide.
+  const { ModelPool } = await import('../lib/discovery.js');
+
+  const advertised = ['deepseek-flash', 'deepseek-v4-flash', 'deepseek-v4-pro'];
+  const ctx = {
+    get(name) {
+      if (name !== 'llm' && name !== 'subagentModelSelection') return undefined;
+      if (name === 'subagentModelSelection') {
+        return {
+          current: () => ({
+            enabled: true,
+            allowedModels: [{ provider: 'commandcode', model: 'deepseek/deepseek-v4.1-flash' }],
+          }),
+        };
+      }
+      return {
+        listProviders: () => [
+          { id: 'deepseek-official', name: 'Official' },
+          { id: 'commandcode', name: 'Command Code' },
+        ],
+        listModels: async (provider) =>
+          provider === 'deepseek-official'
+            ? advertised.map((id) => ({ provider, id, name: id, inputModalities: ['text'] }))
+            : [{ provider, id: 'deepseek/deepseek-v4.1-flash', name: 'V4.1', inputModalities: ['text'] }],
+        resolveModelInfo: async (provider, model) => ({ provider, id: model, name: model }),
+      };
+    },
+  };
+
+  const pool = new ModelPool();
+  const before = await pool.refresh(ctx, {});
+  assert.equal(before.models.length, 4, 'the registry advertises four routes');
+
+  // With the policy in force, only the selectable route survives.
+  assert.deepEqual(pool.models().map((entry) => entry.route), [
+    'commandcode/deepseek/deepseek-v4.1-flash',
+  ]);
+  const report = pool.filterReport();
+  assert.equal(report.constrained, true);
+  assert.equal(report.policy.source, 'subagent');
+  assert.deepEqual(report.droppedByPolicy.sort(), [
+    'deepseek-official/deepseek-flash',
+    'deepseek-official/deepseek-v4-flash',
+    'deepseek-official/deepseek-v4-pro',
+  ]);
+});
+
+test('a deployment with no policy keeps every advertised route', async () => {
+  const { ModelPool } = await import('../lib/discovery.js');
+  const ctx = {
+    get(name) {
+      if (name !== 'llm') return undefined;
+      return {
+        listProviders: () => [{ id: 'p1', name: 'P1' }],
+        listModels: async (provider) => [
+          { provider, id: 'a', name: 'A', inputModalities: ['text'] },
+          { provider, id: 'b', name: 'B', inputModalities: ['text'] },
+        ],
+        resolveModelInfo: async (provider, model) => ({ provider, id: model, name: model }),
+      };
+    },
+  };
+  const pool = new ModelPool();
+  await pool.refresh(ctx, {});
+  assert.equal(pool.models().length, 2, 'nothing may filter the pool without a policy');
+  assert.equal(pool.filterReport().constrained, false);
+});
+
+test('a policy that matches nothing is reported as a problem, not an empty pool', async () => {
+  const { ModelPool } = await import('../lib/discovery.js');
+  const ctx = {
+    get(name) {
+      if (name === 'subagentModelSelection') {
+        return { current: () => ({ enabled: true, allowedModels: [{ provider: 'other', model: 'x' }] }) };
+      }
+      if (name !== 'llm') return undefined;
+      return {
+        listProviders: () => [{ id: 'p1', name: 'P1' }],
+        listModels: async (provider) => [{ provider, id: 'a', name: 'A', inputModalities: ['text'] }],
+        resolveModelInfo: async (provider, model) => ({ provider, id: model, name: model }),
+      };
+    },
+  };
+  const pool = new ModelPool();
+  await pool.refresh(ctx, {});
+  assert.equal(pool.models().length, 0);
+  assert.ok(
+    pool.problems().some((line) => /policy matched none/.test(line)),
+    'the mismatch must be explained rather than looking like an empty deployment',
+  );
+});
