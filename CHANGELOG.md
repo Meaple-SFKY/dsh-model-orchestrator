@@ -7,6 +7,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Model identity and assignment resolution** (`lib/model-identity.js`). The pool churns —
+  models are added, renamed, moved behind another provider, and bumped to a new version — so a
+  capability→model assignment cannot be stored against a route without rotting silently. It is
+  therefore stored against a model *identity* and resolved against the live pool every time.
+  Identity is mechanical and answers only "is this still the same model": case, separators and
+  parenthetical vendor tags collapse, a route answers to several keys so that
+  `deepseek/deepseek-v4.1-flash` and its declared name `DeepSeek V4.1 Flash (CC)` meet, and a
+  version-less family key lets one assignment survive a version bump **when the user opts into
+  following the family**. Resolution walks route → identity → family and reports every failure
+  as unresolved rather than guessing: a truncated spelling like `Qwen3.8-Max` for
+  `Qwen/Qwen3.8-Max-0902` stays unresolved, because the prefix rules that would catch it are the
+  same ones that silently route `gpt-5.6-sol` work to `gpt-5.6-sol-vision`. That boundary is the
+  argument for the panel offering a picker over the live pool instead of a free-text field.
+  **Not yet wired into routing** — persistence, the matcher, the cluster split, and the panel
+  follow; this is the resolution core they are built on.
+
 ### Changed
 
 - **The duplicated routing-capacity card is gone from the settings page.** Its three figures
