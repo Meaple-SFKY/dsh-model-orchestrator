@@ -66,7 +66,7 @@ So the orchestrator works with that seam rather than against it:
 ## Install
 
 ```sh
-dsh plugin --profile <name> add dsh-model-orchestrator
+dsh plugin --profile <name> add github:Meaple-SFKY/dsh-model-orchestrator
 ```
 
 Or from a local checkout:
@@ -75,11 +75,17 @@ Or from a local checkout:
 dsh plugin --profile web add /path/to/dsh-model-orchestrator
 ```
 
-From the repository, before this package is published to npm:
+Once the package is on npm this shortens to the same thing:
 
 ```sh
-dsh plugin --profile <name> add github:Meaple-SFKY/dsh-model-orchestrator
+dsh plugin --profile <name> add dsh-model-orchestrator
 ```
+
+For the record, and so nobody plans around it: the package is **not** on npm yet, because npm now
+requires either 2FA or a bypass-2FA granular token to publish and this account has 2FA disabled —
+TOTP enrolment is no longer even possible. A GitHub source needs none of that, which is also how
+roughly half of the plugins in the community registry are installed. See
+[`docs/marketplace-submission.md`](docs/marketplace-submission.md).
 
 The bundle patch mounts one row into the profile's host composition, registers the
 `orchestrate_*` tools into the shared tool registry, contributes one routing-policy

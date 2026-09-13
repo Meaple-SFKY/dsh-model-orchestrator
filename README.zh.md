@@ -55,7 +55,7 @@ harness 只提供一个受支持的、用于选定模型的接缝：**子**代�
 ## 安装
 
 ```sh
-dsh plugin --profile <name> add dsh-model-orchestrator
+dsh plugin --profile <name> add github:Meaple-SFKY/dsh-model-orchestrator
 ```
 
 或者从本地检出安装：
@@ -64,11 +64,13 @@ dsh plugin --profile <name> add dsh-model-orchestrator
 dsh plugin --profile web add /path/to/dsh-model-orchestrator
 ```
 
-在该包发布到 npm 之前，可以直接从仓库安装：
+等本包发布到 npm 之后，上面这条可以简写为：
 
 ```sh
-dsh plugin --profile <name> add github:Meaple-SFKY/dsh-model-orchestrator
+dsh plugin --profile <name> add dsh-model-orchestrator
 ```
+
+说清楚原因，免得有人按错误前提做规划：本包**目前不在 npm 上** —— npm 现在要求发布者具备 2FA 或一个带 bypass-2FA 的 granular token，而本账号未开启 2FA，且 TOTP 已无法再注册。从 GitHub 安装不需要这些，社区注册表里约一半的插件也正是这样安装的。详见 [`docs/marketplace-submission.md`](docs/marketplace-submission.md)。
 
 这个 bundle patch 会向该 profile 的 host composition 挂载一行，把 `orchestrate_*` 工具注册进共享工具注册表，向系统提示词贡献一个路由策略小节，并提供控制面板路由。安装后请重启该 profile，让宿主加载新的 bundle。
 
