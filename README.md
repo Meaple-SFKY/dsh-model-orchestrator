@@ -322,6 +322,18 @@ Both are served by the host over three same-origin routes (`state`, `configure`,
 The browser half cannot enumerate models itself — the LLM listing surface is host-only —
 so the panel reads the real pool from the host and never guesses.
 
+## Layout
+
+The board renders as a **centred, width-constrained column**, matching how the shipped
+Chat and Trajectory views lay themselves out. This is not decoration: the conversation
+shell renders the transcript's width handles *absolutely*, positioned off the content
+column, so a view that paints full-bleed draws its content straight under those handles.
+Measured in a live session: the board column spans x 498–1272 while the handles sit at
+x 436 and x 1304 — clear of the content, which is where they belong.
+
+The constraint is `width: min(920px, 64%, 100%)` with `margin-inline: auto`; 64% mirrors
+the shell's adaptive content width and 920px is its ceiling.
+
 ## Performance
 
 The plugin must not make the harness feel slower. Two rules enforce that, both

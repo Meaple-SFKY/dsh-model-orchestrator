@@ -21,6 +21,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `?force=1` (the panel's Refresh) or on an adapter-topology change. `/plan` no longer
   discovers at all.
 
+### Changed
+
+- **The board is a centred, width-constrained column**, matching the shipped Chat and
+  Trajectory views. The conversation shell positions the transcript's width handles
+  absolutely off the content column, so a full-bleed view drew its content under them.
+  Measured in a live session: content 498–1272, handles at 436 and 1304 — clear of the
+  content.
+
 ### Removed
 
 - The model-pool rating, and the "Suitable for (stated)" and "Basis" columns. All three
