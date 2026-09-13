@@ -348,6 +348,29 @@ model names the routes it judges best, most preferred first, with its reasoning.
 The tool description tells the calling model this explicitly, so it reaches for its own model
 knowledge rather than trusting a route id it cannot interpret.
 
+### Judgements belong to the model
+
+Anything that is a **judgement about the task** is the calling model's to make. The plugin's
+own cue lists are a **fallback** for when no model supplied an analysis — never an authority
+that overrules one, and never the only wording that can be understood.
+
+| The plugin | The model |
+|---|---|
+| Measures facts: context window, modalities, output budget, reasoning tiers | Reads the task and judges what it needs |
+| Enforces the route policy and hard requirements | Names capabilities, in its own vocabulary |
+| Falls back to cue lists when nothing was supplied | States complexity and model preferences |
+
+Concretely:
+
+- A model-supplied analysis is **used as given**. Its `complexity` is no longer reconciled
+  against the local reading — that reconciliation demoted a model claiming `complex` to a
+  locally observed `specialist`, and promoted a claim of `trivial`.
+- The fallback vocabulary lives in `lib/decision-vocabulary.js` and is **replaceable** through
+  `orchestrate_configure`'s `decisionCues`, so an operator is never stuck with the author's
+  phrasing. `orchestrate_status` reports which groups are still built-in.
+- The fallback lists are kept small and are documented as hints, so they cannot be mistaken
+  for a definition of what a task is.
+
 ### What the plugin will not do
 
 It will not merge two routes that share a model name. In the deployment measured here,

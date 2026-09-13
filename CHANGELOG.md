@@ -7,6 +7,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A model's complexity judgement was being overruled.** The plugin took the maximum of the
+  claimed and the locally observed level, framed as a safety net. With the levels ordered
+  `trivial < simple < specialist < complex`, that silently DEMOTED a model claiming `complex`
+  against a locally observed `specialist`, and promoted a claim of `trivial`. A model's
+  reading of the task is now used as given; the local phrase list is consulted only when no
+  analysis was supplied.
+
+### Changed
+
+- **Task judgement is the model's; the plugin's cue lists are a fallback.** The six
+  hardcoded cue lists were decision heuristics that recognized only the wording their author
+  happened to write. They now live in `lib/decision-vocabulary.js`, are documented as a
+  fallback, and can be replaced through `orchestrate_configure`'s `decisionCues` (one group
+  at a time, with an empty list ignored so a dimension cannot be disabled by omission).
+  `orchestrate_status` reports whether the vocabulary is built-in or operator-owned, and
+  which groups were replaced.
+
+
 ### Added
 
 - **Model selection is now informed by the calling model, under the plugin's constraints.**
