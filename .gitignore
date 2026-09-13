@@ -4,6 +4,10 @@ node_modules/
 # Scratch space for local investigation; nothing here is a deliverable.
 tmp/
 
+# npm stores credentials in .npmrc. A USER-level one (~/.npmrc) is where a publish
+# token belongs; a PROJECT-level one must never be committed by accident.
+.npmrc
+
 .DS_Store
 *.log
 coverage/
