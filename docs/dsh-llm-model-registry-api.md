@@ -6,7 +6,9 @@ providers and models at **runtime** in the live harness process.
 Installation root (all paths below are relative to it unless absolute):
 
 ```
-DSH_ROOT=/home/sfky/.nvm/versions/node/v24.21.0/lib/node_modules/@deepseek-ai/dsh
+# The harness installation root. Yours will differ; resolve it with
+#   node -e "console.log(require.resolve('@deepseek-ai/dsh/package.json'))"
+DSH_ROOT=<your dsh installation>
 PKGS=$DSH_ROOT/node_modules/@deepseek-ai
 ```
 

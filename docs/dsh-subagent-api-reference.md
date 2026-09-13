@@ -1,6 +1,7 @@
 # DSH Subagent / Workflow API Reference — verified against v0.1.5-rc.2
 
-Install root: `/home/sfky/.nvm/versions/node/v24.21.0/lib/node_modules/@deepseek-ai/dsh/`
+Install root: the harness installation, resolvable with
+`node -e "console.log(require.resolve('@deepseek-ai/dsh/package.json'))"`.
 Packages: `.../node_modules/@deepseek-ai/<pkg>/`
 
 Every claim below is VERIFIED by reading the shipped compiled output and `.d.ts`.
