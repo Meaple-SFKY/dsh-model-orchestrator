@@ -322,6 +322,29 @@ Both are served by the host over three same-origin routes (`state`, `configure`,
 The browser half cannot enumerate models itself — the LLM listing surface is host-only —
 so the panel reads the real pool from the host and never guesses.
 
+## Performance
+
+The plugin must not make the harness feel slower. Two rules enforce that, both
+regressions found by timing a real profile boot:
+
+1. **Activation performs no network I/O.** The compatibility gate originally probed every
+   provider with `listModels()` to prove the pool was usable. A provider's model listing can
+   be a live HTTP request — the bundled third-party provider refetches its catalog on every
+   call with a 10s timeout and only a failure fallback to disk — so the gate turned every
+   boot into a multi-second wait. The gate now checks only that a provider **route** is
+   registered; whether a provider answers is a runtime condition reported as a pool problem.
+   Measured effect: profile boot went from **6.7s back to 3.9s**, matching the
+   no-plugin baseline within 3ms.
+2. **Polling never re-reads providers.** The panel polls `/state`, and discovery was
+   originally re-run on every read. `/state` now serves the pool it has; re-discovery happens
+   only on an explicit `?force=1` (the panel's Refresh button) or when the harness reports an
+   adapter change. `/plan` no longer discovers either — previewing a route must not hit a
+   provider.
+
+Discovery still starts immediately at activation; it is simply not awaited, so nothing about
+the pool blocks the boot. The first panel read waits for that in-flight discovery rather than
+painting an empty pool.
+
 ## Interruption and restart
 
 The plugin holds no durable task state, so an interruption cannot leave it wedged.
@@ -363,7 +386,7 @@ pgrep -fa 'dsh --profile'
 ## Development
 
 ```sh
-node --test "test/*.test.js"   # 156 tests, no host required
+node --test "test/*.test.js"   # 164 tests, no host required
 node scripts/check-compat.mjs  # host compatibility report
 ```
 

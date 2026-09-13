@@ -182,21 +182,50 @@ test('an empty model pool refuses activation', async () => {
   );
 });
 
-test('a provider that cannot list models refuses activation', async () => {
+test('the gate performs NO model-listing network I/O', async (t) => {
+  // The gate resolves the running host, which a bare checkout cannot.
+  if (resolveDshVersion() === undefined) return t.skip('no DSH installation is present');
+  // Regression, found by timing a real profile boot: the gate probed every
+  // provider with listModels(), which for the bundled third-party provider is a
+  // live HTTP request with a 10s timeout. That turned every boot into a
+  // multi-second network wait (measured: 5.6s of a 6.7s boot).
+  let listingCalls = 0;
+  const ctx = healthyContext({
+    llm: {
+      listModels: async () => {
+        listingCalls += 1;
+        throw new Error('this provider would block on a real network call');
+      },
+      resolveModelInfo: async () => {
+        throw new Error('the gate must not resolve model metadata either');
+      },
+    },
+  });
   const logger = captureLogger();
+  // Activation succeeds: a slow or offline provider is a runtime condition, not
+  // an incompatibility, and it must never block boot.
+  await assertCompatible(ctx, logger);
+  assert.equal(listingCalls, 0, 'the gate must not call listModels()');
+});
+
+test('a deployment with a provider route but no answering provider still activates', async (t) => {
+  if (resolveDshVersion() === undefined) return t.skip('no DSH installation is present');
+  // The pool reports the failure as a problem when discovery runs; activation is
+  // not the place to require a network answer.
+  const ctx = healthyContext({
+    llm: { listModels: async () => { throw new Error('offline'); } },
+  });
+  const logger = captureLogger();
+  const result = await assertCompatible(ctx, logger);
+  assert.equal(result.runningVersion !== undefined || result.range !== undefined, true);
+});
+
+test('a provider registered without a usable id is refused', async (t) => {
+  if (resolveDshVersion() === undefined) return t.skip('no DSH installation is present');
+  const ctx = healthyContext({ llm: { listProviders: () => [{ name: 'no id here' }] } });
   await assert.rejects(
-    () =>
-      assertCompatible(
-        healthyContext({
-          llm: {
-            listModels: async () => {
-              throw new Error('plan does not include models');
-            },
-          },
-        }),
-        logger,
-      ),
-    /No LLM provider answered a model listing/,
+    () => assertCompatible(ctx, captureLogger()),
+    /No LLM provider route is registered/,
   );
 });
 

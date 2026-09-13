@@ -7,6 +7,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Activation no longer performs network I/O, which was slowing every profile boot.**
+  The compatibility gate probed each provider with `listModels()` to prove the pool was
+  usable, and the bundled third-party provider refetches its catalog over HTTP on every
+  call with a 10s timeout. Measured on a real profile: boot took **6.7s with the plugin
+  versus 3.9s without**; after the fix it is **3.88s**, matching the baseline within 3ms.
+  The gate now checks only that a provider route is registered and reports an unresponsive
+  provider as a pool problem instead of refusing activation.
+- **`/state` no longer re-discovers providers on every poll**, which made opening the
+  settings page slow and hammered the provider. Re-discovery now happens only on an explicit
+  `?force=1` (the panel's Refresh) or on an adapter-topology change. `/plan` no longer
+  discovers at all.
+
+### Removed
+
+- The model-pool rating, and the "Suitable for (stated)" and "Basis" columns. All three
+  read as low-value or misleading: the rating graded models only relative to the current
+  pool (so one model scored 1 against everything else at 5, which reads as a verdict it
+  does not support), and the domain and evidence columns were usually empty or expressed in
+  internal vocabulary. The pool now shows Route, Tier, Context, Image, and Reasoning.
+
+
 ### Added
 
 - **The model pool now follows the deployment's subagent route policy.** Discovery reads the

@@ -276,7 +276,7 @@ test('the state document exposes routing capacity but no task state', async () =
   }
 });
 
-test('each model carries a pool-relative rating and its declared domains', async () => {
+test('the state document carries no rating and no cost field', async () => {
   const d = deps();
   try {
     const server = fakeServer();
@@ -284,11 +284,11 @@ test('each model carries a pool-relative rating and its declared domains', async
     installControlRoutesDeferred(ctx, d);
     const ok = exchange();
     await server.routes.get(`${ROUTE_PREFIX}/state`).handler(ok.req, ok.res);
-    // No models in this fixture pool, so the shape is asserted on the container.
     assert.ok(Array.isArray(ok.captured.body.pool.models));
-    // The state document must not carry a cost field: the panel shows no price.
+    // Neither a score nor a price is reported: the rating was removed as
+    // misleading, and the host exposes no price to compute a cost from.
     const serialized = JSON.stringify(ok.captured.body).toLowerCase();
-    for (const forbidden of ['costindex', 'costlow', 'costmed', '"cost"']) {
+    for (const forbidden of ['rating', 'stars', 'costindex', 'costlow', 'costmed', '"cost"']) {
       assert.ok(!serialized.includes(forbidden), `the state document must not expose ${forbidden}`);
     }
   } finally {
@@ -416,6 +416,205 @@ test('a deployment without a web server does not crash a strict context', () => 
     const dispose = installControlRoutesDeferred(ctx, d);
     assert.equal(typeof dispose, 'function');
     dispose();
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('a plain state read does NOT re-discover the pool', async () => {
+  // The panel polls this route. A provider's model listing can be a network round
+  // trip (the bundled third-party provider refetches its catalog over HTTP on
+  // every call), so re-discovering on every poll made the panel slow and hammered
+  // the provider. Polls must be cheap.
+  const d = deps();
+  try {
+    let refreshes = 0;
+    d.engine.refresh = async () => {
+      refreshes += 1;
+      return { models: [] };
+    };
+    // A populated pool means no first-paint wait either.
+    Object.defineProperty(d.pool, 'models', { value: () => [{ route: 'p1/m1' }], configurable: true });
+
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const route = server.routes.get(`${ROUTE_PREFIX}/state`);
+
+    for (let index = 0; index < 5; index += 1) {
+      const ok = exchange({ url: `${ROUTE_PREFIX}/state` });
+      await route.handler(ok.req, ok.res);
+      assert.equal(ok.captured.status, 200);
+    }
+    assert.equal(refreshes, 0, 'five polls must not trigger a single discovery');
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('an explicit force=1 re-discovers the pool', async () => {
+  const d = deps();
+  try {
+    let refreshes = 0;
+    d.engine.refresh = async () => {
+      refreshes += 1;
+      return { models: [] };
+    };
+    Object.defineProperty(d.pool, 'models', { value: () => [{ route: 'p1/m1' }], configurable: true });
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+
+    const ok = exchange({ url: `${ROUTE_PREFIX}/state?force=1` });
+    await server.routes.get(`${ROUTE_PREFIX}/state`).handler(ok.req, ok.res);
+    assert.equal(refreshes, 1, 'the panel Refresh button must actually refresh');
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('the first read waits for the initial discovery, then never again', async () => {
+  const d = deps();
+  try {
+    let settle;
+    const firstDiscovery = new Promise((resolve) => {
+      settle = resolve;
+    });
+    let models = [];
+    Object.defineProperty(d.pool, 'models', { value: () => models, configurable: true });
+    d.engine.refresh = async () => ({ models: [] });
+    d.firstDiscovery = firstDiscovery;
+
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const route = server.routes.get(`${ROUTE_PREFIX}/state`);
+
+    // The first request blocks on the in-flight discovery: better to wait than to
+    // paint an empty pool that looks like a broken deployment.
+    const first = exchange({ url: `${ROUTE_PREFIX}/state` });
+    let firstSettled = false;
+    const pending = route.handler(first.req, first.res).then(() => {
+      firstSettled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(firstSettled, false, 'the first read waits for discovery');
+
+    settle();
+    await pending;
+    assert.equal(firstSettled, true);
+    assert.equal(first.captured.status, 200);
+
+    // Once the pool is populated, later reads answer immediately.
+    models = [{ route: 'p1/m1' }];
+    const second = exchange({ url: `${ROUTE_PREFIX}/state` });
+    await route.handler(second.req, second.res);
+    assert.equal(second.captured.status, 200);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('a plain state read does NOT re-discover the pool', async () => {
+  // The panel polls this route. A provider's model listing can be a real network
+  // round trip (the bundled third-party provider refetches its catalog over HTTP
+  // on every call, with a 10s timeout), so re-discovering on every poll made the
+  // panel slow and hammered the provider. Polls must be cheap.
+  const d = deps();
+  try {
+    let refreshes = 0;
+    d.engine = { ...d.engine, refresh: async () => { refreshes += 1; return { models: [] }; } };
+    Object.defineProperty(d.pool, 'models', { value: () => [{ route: 'p1/m1' }], configurable: true });
+
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const route = server.routes.get(`${ROUTE_PREFIX}/state`);
+
+    for (let index = 0; index < 5; index += 1) {
+      const ok = exchange({ url: `${ROUTE_PREFIX}/state` });
+      await route.handler(ok.req, ok.res);
+      assert.equal(ok.captured.status, 200);
+    }
+    assert.equal(refreshes, 0, 'five polls must not trigger a single discovery');
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('an explicit force=1 re-discovers the pool', async () => {
+  const d = deps();
+  try {
+    let refreshes = 0;
+    d.engine = { ...d.engine, refresh: async () => { refreshes += 1; return { models: [] }; } };
+    Object.defineProperty(d.pool, 'models', { value: () => [{ route: 'p1/m1' }], configurable: true });
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+
+    const ok = exchange({ url: `${ROUTE_PREFIX}/state?force=1` });
+    await server.routes.get(`${ROUTE_PREFIX}/state`).handler(ok.req, ok.res);
+    assert.equal(refreshes, 1, 'the panel Refresh button must actually refresh');
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('the first read waits for the in-flight discovery, then never blocks', async () => {
+  const d = deps();
+  try {
+    let settle;
+    const firstDiscovery = new Promise((resolve) => { settle = resolve; });
+    let models = [];
+    Object.defineProperty(d.pool, 'models', { value: () => models, configurable: true });
+    d.engine = { ...d.engine, refresh: async () => ({ models: [] }) };
+    d.firstDiscovery = firstDiscovery;
+
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const route = server.routes.get(`${ROUTE_PREFIX}/state`);
+
+    // The first request waits rather than painting an empty pool, which a reader
+    // would misread as a broken deployment.
+    const first = exchange({ url: `${ROUTE_PREFIX}/state` });
+    let settled = false;
+    const pending = route.handler(first.req, first.res).then(() => { settled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(settled, false, 'the first read waits for discovery');
+
+    settle();
+    await pending;
+    assert.equal(first.captured.status, 200);
+
+    // Once the pool is populated, later reads answer without waiting.
+    models = [{ route: 'p1/m1' }];
+    const second = exchange({ url: `${ROUTE_PREFIX}/state` });
+    await route.handler(second.req, second.res);
+    assert.equal(second.captured.status, 200);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('the plan preview does not trigger a provider round trip', async () => {
+  const d = deps();
+  try {
+    let refreshes = 0;
+    d.engine = {
+      ...d.engine,
+      refresh: async () => { refreshes += 1; return { models: [] }; },
+      plan: async () => ({ tier: 'direct', units: [] }),
+    };
+    Object.defineProperty(d.pool, 'models', { value: () => [{ route: 'p1/m1' }], configurable: true });
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+
+    const ok = exchange({ method: 'POST', body: { task: 'anything' }, url: `${ROUTE_PREFIX}/plan` });
+    await server.routes.get(`${ROUTE_PREFIX}/plan`).handler(ok.req, ok.res);
+    assert.equal(ok.captured.status, 200);
+    assert.equal(refreshes, 0, 'previewing a route must not hit the providers');
   } finally {
     d.cleanup();
   }
