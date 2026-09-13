@@ -541,6 +541,26 @@ Both are served by the host over same-origin routes: `state`, `configure`, `plan
 The browser half cannot enumerate models itself — the LLM listing surface is host-only —
 so the panel reads the real pool from the host and never guesses.
 
+## How a multi-unit plan runs
+
+Units run **in parallel** by default. A plan whose parts are independent — the common case —
+finishes in as many waves as its `maxParallel` setting requires, and no unit waits on another.
+
+`chain: true` turns the plan into a **pipeline** instead: each unit receives its predecessors'
+findings, which is what a genuine sequence ("research, then review, then summarise") needs. It
+used to be automatic, and that was wrong for the opposite reason: an eight-requirement research
+task became seven sequential agents, each doing its own retrieval and each waiting on all of its
+predecessors. The run hit the caller's thirty-minute tool-call ceiling and returned a timeout
+error with **no results at all**, because a timeout discards everything rather than what finished.
+The asymmetry decides it — a parallel unit may lose some cross-unit context; a serial run that
+times out loses all of it. A caller that supplies its own `units` keeps full control of the graph
+either way, and its `dependsOn` is never rewritten.
+
+**A run also bounds itself.** `budgetMs` (25 minutes by default) aborts the run before the caller's
+own tool-call ceiling does, so a long plan returns the units that finished, marks the rest as
+unfinished, and sets `budgetExhausted`. Without it, the ceiling is the only limit and it costs the
+whole run. Pass a smaller `budgetMs` if your own tool-call limit is shorter than the default.
+
 ## Who decides which model
 
 Selection is a division of labour, because neither side can do it alone.

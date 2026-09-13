@@ -5,6 +5,38 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] — 2026-09-14
+
+### Changed
+
+- **A multi-unit plan runs in parallel by default.** Units used to be chained automatically on the
+  theory that a decomposition carries an implied order. For a genuine pipeline that is right; for a
+  plan whose parts are independent it is not, and the independent case is the common one. A real
+  eight-requirement research task became seven sequential agents, each doing its own retrieval and
+  each waiting on all of its predecessors, and the run hit the caller's thirty-minute tool-call
+  ceiling and returned **no results at all** — a timeout discards everything rather than what
+  finished. `chain: true` restores the pipeline for a plan that really is a sequence.
+
+### Added
+
+- **A run bounds itself, so a long plan returns what finished.** `budgetMs` (default 25 minutes)
+  aborts the run just before the caller's own tool-call ceiling, reports `budgetExhausted`, and
+  returns every unit that completed with the rest marked unfinished. Previously the ceiling was the
+  only limit and crossing it cost the entire run.
+- **The run tool declares `units` and `chain`.** The engine had always accepted a caller-supplied
+  graph and this plugin's own pipeline flag; the tool declared neither, so a caller that sent
+  `units` had them silently dropped — the same declared-in-one-place, ignored-in-another shape as
+  the top-level preferences fixed in 0.2.2, and it also made the new pipeline opt-in unreachable.
+- **A caller-supplied graph overrides an inferred tier.** Supplying units is an explicit request to
+  delegate, but a plan the plugin had merely inferred as `direct` discarded them without a word. An
+  explicit `tier` still wins.
+
+### Fixed
+
+- **`run` did not detach its abort listener** — `dispatch` did, so the listener leak the earlier fix
+  was written for survived on the path that matters most. A session-scoped signal accumulated one
+  per orchestration.
+
 ## [0.2.3] — 2026-09-14
 
 ### Fixed
@@ -623,6 +655,7 @@ Initial release. Generic, domain-agnostic Model Orchestrator for DSH `0.1.5-rc.1
 - Only `spawn` and `fork` subagent providers are consulted; any registered provider that
   advertises the `agentOptions` capability works.
 
+[0.2.4]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.0...v0.2.1

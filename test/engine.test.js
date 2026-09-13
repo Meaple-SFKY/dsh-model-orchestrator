@@ -470,16 +470,17 @@ test('teardown aborts in-flight delegation instead of orphaning it', async () =>
   }
 });
 
-test('a multi-unit plan chains its stages so each sees the previous findings', async () => {
-  // Regression: a task explicitly described as a sequence was routed to several
-  // specialists that all ran in parallel with `dependsOn: []`, so the review and
-  // the summary never saw the research output. A pipeline must serialise.
+test('chain: true turns a multi-unit plan into a pipeline that shares findings', async () => {
+  // A pipeline must still be available — it is just no longer the default. A task
+  // explicitly described as a sequence routes to several specialists, and with
+  // `chain: true` the review and the summary see the research output.
   const profiles = [profileOf('p1', 'general', { description: 'careful analysis', efforts: ['high'] })];
   const { engine, host, cleanup } = makeEngine({ profiles });
   try {
     const run = await engine.run({
       task: 'Research the topic, then review the findings, then summarize the result.',
       captain: CAPTAIN,
+      chain: true,
     });
     // Every unit after the first must declare a dependency.
     const chained = run.results.filter((entry) => (entry.dependsOn ?? []).length > 0);
@@ -1069,6 +1070,105 @@ test('dispatch drops an unsupported level too, and reports it', async () => {
     assert.equal(answer.reasoningEffort, undefined);
     assert.equal(answer.effortUnavailable, 'medium');
     assert.equal(host.calls[0].request.agentOptions.reasoningEffort, undefined);
+  } finally {
+    cleanup();
+  }
+});
+
+test('units run in parallel by default, with no implied order', async () => {
+  // The default used to be a serial chain for every multi-unit plan. A research task
+  // with several independent parts then ran as several sequential agents, hit the
+  // caller's tool ceiling, and returned nothing at all — a timeout discards
+  // everything rather than what finished.
+  const profiles = [profileOf('p1', 'general', { description: 'careful analysis', efforts: ['high'] })];
+  const { engine, host, cleanup } = makeEngine({ profiles });
+  try {
+    const run = await engine.run({
+      task: 'Research the topic, then review the findings, then summarize the result.',
+      captain: CAPTAIN,
+    });
+    assert.ok(run.results.length > 1, `expected several units, got ${run.results.length}`);
+    assert.deepEqual(
+      run.results.map((entry) => entry.dependsOn ?? []),
+      run.results.map(() => []),
+      'no unit may depend on another unless the caller asked for a pipeline',
+    );
+    // Nothing receives "shared findings", because nothing ran after anything.
+    const withContext = host.calls.filter((call) =>
+      call.request.prompt.some((block) => /Shared findings so far/.test(block.text ?? '')),
+    );
+    assert.equal(withContext.length, 0, 'independent units must not be fed each other\'s output');
+  } finally {
+    cleanup();
+  }
+});
+
+test('a caller-supplied graph is never rewritten into a chain', async () => {
+  const profiles = [profileOf('p1', 'general', { description: 'careful analysis', efforts: ['high'] })];
+  const { engine, cleanup } = makeEngine({ profiles });
+  try {
+    const run = await engine.run({
+      task: 'Two independent questions.',
+      captain: CAPTAIN,
+      chain: true,
+      units: [
+        { id: 'one', capabilityId: 'general', prompt: 'First.', route: 'p1/general' },
+        { id: 'two', capabilityId: 'general', prompt: 'Second.', route: 'p1/general' },
+      ],
+    });
+    assert.deepEqual(run.results.map((entry) => entry.dependsOn ?? []), [[], []], 'the caller\'s graph stands');
+  } finally {
+    cleanup();
+  }
+});
+
+test('a run that exhausts its budget returns the parts that finished', async () => {
+  // The alternative was the real failure: the caller's tool call hit its 30-minute
+  // ceiling and returned a timeout error with NO results, losing everything the run
+  // had already produced.
+  const profiles = [profileOf('p1', 'general', { description: 'careful analysis', efforts: ['high'] })];
+  const { engine, host, cleanup } = makeEngine({ profiles });
+  try {
+    // A host that settles a child's result when its signal aborts, which is what a
+    // real one does and what makes the abort actually unblock the run.
+    host.subagents.start = async (name, request) => ({
+      id: 'child',
+      localAgent: undefined,
+      result: new Promise((_, reject) => {
+        const stop = () => reject(new Error('aborted by the run budget'));
+        if (request.signal?.aborted === true) stop();
+        else request.signal?.addEventListener('abort', stop, { once: true });
+      }),
+      dispose: async () => {},
+    });
+
+    const run = await engine.run({
+      task: 'Research the topic, then review the findings, then summarize the result.',
+      captain: CAPTAIN,
+      budgetMs: 30,
+    });
+
+    assert.equal(run.budgetExhausted, true, 'the caller must be told it holds partial results');
+    assert.equal(run.budgetMs, 30);
+    assert.ok(run.counts.total > 0, 'the plan is still reported, unit by unit');
+    assert.equal(run.counts.completed, 0);
+    assert.ok(
+      run.results.every((entry) => entry.ok === false && typeof entry.error === 'string'),
+      'units that could not finish are reported as failed rather than omitted',
+    );
+    assert.ok(run.aggregated.length >= 0, 'and the document is still well-formed');
+  } finally {
+    cleanup();
+  }
+});
+
+test('an ordinary run reports its budget and does not claim to have hit it', async () => {
+  const profiles = [profileOf('p1', 'general', { description: 'careful analysis', efforts: ['high'] })];
+  const { engine, cleanup } = makeEngine({ profiles });
+  try {
+    const run = await engine.run({ task: 'Implement the parser.', captain: CAPTAIN });
+    assert.equal(typeof run.budgetMs, 'number');
+    assert.equal(run.budgetExhausted, undefined);
   } finally {
     cleanup();
   }
