@@ -995,3 +995,81 @@ test('a dispatch registers its child, so teardown can abort it', async () => {
     cleanup();
   }
 });
+
+test('a level the route cannot express is dropped and said, not fatal', async () => {
+  // Reproduced from a real failure: the calling model asked for "medium" (the
+  // common low/medium/high triad) for a unit routed to a model that advertises
+  // low/high/max. The level used to be sent unvalidated, the preflight rejected the
+  // route at the adapter, and the unit returned no answer at all.
+  const profiles = [
+    profileOf('p1', 'kimi', { description: 'coding implementation', efforts: ['low', 'high', 'max'] }),
+  ];
+  const { engine, host, cleanup } = makeEngine({ profiles });
+  try {
+    const run = await engine.run({
+      task: 'Implement the parser.',
+      captain: CAPTAIN,
+      analysis: {
+        summary: 'implement',
+        complexity: 'specialist',
+        requirements: [{ capability: 'software.implementation', weight: 0.9, reasoningEffort: 'medium' }],
+      },
+    });
+    assert.equal(run.results.length, 1);
+    const [entry] = run.results;
+    assert.equal(entry.ok, true, 'the unit must still produce an answer');
+    assert.equal(entry.error, undefined);
+    assert.equal(entry.reasoningEffort, undefined, 'no unsupported level is sent');
+    assert.equal(entry.effortUnavailable, 'medium', 'and the drop is reported, not swallowed');
+
+    // The child was actually started without a reasoning level.
+    assert.equal(host.calls.length, 1);
+    assert.equal(host.calls[0].request.agentOptions.reasoningEffort, undefined);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a level the route does advertise is still sent', async () => {
+  const profiles = [
+    profileOf('p1', 'kimi', { description: 'coding implementation', efforts: ['low', 'high', 'max'] }),
+  ];
+  const { engine, host, cleanup } = makeEngine({ profiles });
+  try {
+    const run = await engine.run({
+      task: 'Implement the parser.',
+      captain: CAPTAIN,
+      analysis: {
+        summary: 'implement',
+        complexity: 'specialist',
+        requirements: [{ capability: 'software.implementation', weight: 0.9, reasoningEffort: 'high' }],
+      },
+    });
+    assert.equal(run.results[0].reasoningEffort, 'high');
+    assert.equal(run.results[0].effortUnavailable, undefined);
+    assert.equal(host.calls[0].request.agentOptions.reasoningEffort, 'high');
+  } finally {
+    cleanup();
+  }
+});
+
+test('dispatch drops an unsupported level too, and reports it', async () => {
+  const profiles = [
+    profileOf('p1', 'kimi', { description: 'coding implementation', efforts: ['low', 'high', 'max'] }),
+  ];
+  const { engine, host, cleanup } = makeEngine({ profiles });
+  try {
+    const answer = await engine.dispatch({
+      task: 'Implement the parser.',
+      capability: 'software.implementation',
+      captain: CAPTAIN,
+      reasoningEffort: 'medium',
+    });
+    assert.equal(answer.ok, true);
+    assert.equal(answer.reasoningEffort, undefined);
+    assert.equal(answer.effortUnavailable, 'medium');
+    assert.equal(host.calls[0].request.agentOptions.reasoningEffort, undefined);
+  } finally {
+    cleanup();
+  }
+});

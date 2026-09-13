@@ -205,6 +205,13 @@ silently ignoring what you asked for. A route that reports no reasoning at all c
 level, and a route that lists levels keeps the strict rule: an id that is no longer on its list is
 a stale entry and is ignored.
 
+A level is never sent to a route that cannot express it, whatever proposed it. The stored
+preference, the calling model's own per-unit request, and a capability descriptor's declared level
+are all checked against the destination route; a level it does not advertise is dropped — the route
+then resolves its own default — and reported as `effortUnavailable` on that unit's result. It used
+to be sent, on the theory that the caller's judgement outranks the plugin's, and the adapter then
+rejected the route and the unit produced no answer at all.
+
 The distinction matters in routing, not only in the panel. A capability that requires reasoning
 accepts both `adjustable` and `automatic`; a requirement that names a level (for example "must
 expose high") needs `adjustable`, since a level that cannot be selected cannot satisfy it. Setting

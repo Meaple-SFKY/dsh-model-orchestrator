@@ -5,6 +5,30 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] — 2026-09-14
+
+### Fixed
+
+- **A reasoning level the destination route cannot express was sent anyway, failing the unit.**
+  Reported from a real session: the plugin routed a unit to `commandcode/moonshotai/Kimi-K3` and the
+  adapter rejected it with *"does not support reasoning effort \"medium\""*. `medium` is the common
+  low/medium/high triad, and that route advertises `low`/`high`/`max` — the level came from the
+  calling model's own vocabulary, because the parameter was undocumented and the schema told it
+  nothing about which levels exist. The stored preference was validated against the route and the
+  caller's request was not, so the caller's value went straight to the adapter and the unit returned
+  no answer. All three sources — the stored preference, the caller's per-unit request, and a
+  capability descriptor's declared level — are now checked with the same predicate; an
+  unexpressible level is dropped (the route resolves its own default) and reported as
+  `effortUnavailable` on the unit result and on a `dispatch` response. Reproduced against the live
+  adapter before fixing, and the two `reasoningEffort` parameters now document that levels are
+  route-specific and where to read them.
+
+- **The two parameters that accept a level said nothing about it.** `orchestrate_run`'s
+  per-requirement `reasoningEffort` was undocumented entirely, which is what let a calling model
+  invent one. Both it and `orchestrate_dispatch`'s `reasoningEffort` now say the level must be
+  spelled as the chosen route advertises it, point at `orchestrate_models` for the list, and state
+  that an unavailable level is dropped and reported rather than fatal.
+
 ## [0.2.0] — 2026-09-14
 
 ### Removed
@@ -571,5 +595,6 @@ Initial release. Generic, domain-agnostic Model Orchestrator for DSH `0.1.5-rc.1
 - Only `spawn` and `fork` subagent providers are consulted; any registered provider that
   advertises the `agentOptions` capability works.
 
+[0.2.1]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/releases/tag/v0.1.0
