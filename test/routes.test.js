@@ -798,3 +798,56 @@ test('a deployment with no sync runner reports it instead of failing', async () 
     d.cleanup();
   }
 });
+
+test('the pool state carries the researched facts, the cost basis and the reasoning mode', async () => {
+  const d = deps();
+  try {
+    Object.defineProperty(d.pool, 'models', {
+      value: () => [
+        {
+          route: 'p1/dear',
+          provider: 'p1',
+          model: 'dear',
+          name: 'Dear (CC)',
+          facts: { efforts: ['low', 'high'], reasoningMode: 'adjustable' },
+          derived: { tier: 'deep', hasReasoning: true },
+        },
+        {
+          route: 'p1/auto',
+          provider: 'p1',
+          model: 'auto',
+          name: 'Auto (CC)',
+          // A provider that reasons without exposing a level to pick.
+          facts: { reasoningMode: 'automatic' },
+          derived: { tier: 'deep', hasReasoning: false },
+        },
+      ],
+      configurable: true,
+    });
+    d.store.update((state) => {
+      state.research = {
+        dear: { route: 'p1/dear', matched: true, publicName: 'Dear 1.0', vendor: 'Acme', inputPerMTok: 3, outputPerMTok: 9, identityKeys: ['dear'] },
+        auto: { route: 'p1/auto', matched: false, notes: 'no public listing', identityKeys: ['auto'] },
+      };
+    });
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const answer = exchange({ method: 'GET' });
+    await server.routes.get(`${ROUTE_PREFIX}/state`).handler(answer.req, answer.res);
+
+    const [dear, auto] = answer.captured.body.pool.models;
+    assert.deepEqual(dear.researched.publicName, 'Dear 1.0');
+    assert.equal(dear.researched.matched, true);
+    assert.equal(dear.researched.inputPerMTok, 3);
+    assert.equal(dear.reasoningMode, 'adjustable', 'the panel needs this to choose a selector');
+
+    // Unconfirmed stays unconfirmed and carries its note, so the cell can say so.
+    assert.equal(auto.researched.matched, false);
+    assert.equal(auto.researched.publicName, undefined);
+    assert.equal(auto.researched.notes, 'no public listing');
+    assert.equal(auto.reasoningMode, 'automatic', 'not "none": it reasons, without a level');
+  } finally {
+    d.cleanup();
+  }
+});

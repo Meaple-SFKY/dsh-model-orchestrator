@@ -9,7 +9,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Taxonomy } from '../lib/taxonomy.js';
-import { analysisFromModel, analysisFromText, inferComplexity } from '../lib/matching.js';
+import { analysisFromModel, analysisFromText, inferComplexity, scoreCapability } from '../lib/matching.js';
 import { CUE_GROUPS, defaultCues, describeCues, resolveCues } from '../lib/decision-vocabulary.js';
 
 const taxonomy = () => new Taxonomy();
@@ -117,4 +117,50 @@ test('the cue lists are described as a fallback wherever they are documented', a
   const source = readFileSync(new URL('../lib/decision-vocabulary.js', import.meta.url), 'utf8');
   assert.match(source, /FALLBACK/, 'the module must say so in its own documentation');
   assert.match(source, /as given/, 'and must state that a model analysis is used as given');
+});
+
+test('reasoning has three states, and only two of them are capability', () => {
+  // A provider may reason WITHOUT exposing a level to pick: the model thinks and the
+  // provider drives the depth. Collapsing that into "no reasoning" hard-rejected such
+  // a model from every capability that requires reasoning, which is the opposite of
+  // what a model that reasons automatically should get.
+  const build = (facts) => {
+    const profile = { route: 'p/m', facts, derived: { hasReasoning: false } };
+    return profile;
+  };
+  const reasoningSignal = { type: 'reasoning', efforts: [], required: true };
+  const descriptor = { id: 'x', signals: [reasoningSignal] };
+
+  const adjustable = scoreCapability(descriptor, build({ efforts: ['low', 'high'], reasoningMode: 'adjustable' }), {});
+  assert.equal(adjustable.score, 1, 'an adjustable level satisfies a reasoning requirement');
+
+  const automatic = scoreCapability(descriptor, build({ reasoningMode: 'automatic' }), {});
+  assert.equal(automatic.score, 1, 'automatic reasoning satisfies a reasoning requirement');
+  assert.match(automatic.matched.join(' '), /reasons automatically/);
+  assert.deepEqual(automatic.hardFailures, []);
+
+  const none = scoreCapability(descriptor, build({ reasoningMode: 'none' }), {});
+  assert.equal(none.hardFailures.length, 1, 'a model that cannot reason is still refused');
+  assert.match(none.hardFailures[0], /no reasoning is reported/);
+});
+
+test('a requirement that NAMES levels still needs a selectable one', () => {
+  // "must expose high" cannot be satisfied by a provider that will not let anyone
+  // pick a level — there is nothing to select.
+  const descriptor = { id: 'x', signals: [{ type: 'reasoning', efforts: ['high'], required: true }] };
+  const automatic = scoreCapability(
+    descriptor,
+    { route: 'p/m', facts: { reasoningMode: 'automatic' }, derived: { hasReasoning: false } },
+    {},
+  );
+  assert.equal(automatic.hardFailures.length, 1);
+  assert.match(automatic.hardFailures[0], /requested reasoning levels \[high\] is selectable/);
+
+  const hasHigh = scoreCapability(
+    descriptor,
+    { route: 'p/m', facts: { efforts: ['high'], reasoningMode: 'adjustable' }, derived: { hasReasoning: true } },
+    {},
+  );
+  assert.equal(hasHigh.score, 1);
+  assert.deepEqual(hasHigh.hardFailures, []);
 });

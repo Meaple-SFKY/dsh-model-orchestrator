@@ -9,6 +9,30 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The model pool shows the public model and its published cost as columns.** The researched
+  name, vendor, per-million-token prices and a bar relative to the dearest route in the same pool
+  — because a price alone does not answer "is this expensive", and the only meaningful scale is
+  the choice actually on offer. Rows with no research yet, and prices no source stated, stay
+  blank rather than reading as zero; the card says plainly that these came from Sync and not from
+  the host.
+
+### Fixed
+
+- **A provider that reasons without exposing a level was treated as unable to reason.** DSH
+  reports reasoning in three states, and the plugin collapsed two of them: a model whose provider
+  drives the depth itself (`reasoning` present, no selectable efforts) looked identical to a model
+  with no reasoning at all, and a capability that requires reasoning **hard-rejected** it. The
+  states are now distinct — `adjustable`, `automatic`, `none` — and a reasoning requirement with
+  no named levels is satisfied by either of the first two. A requirement that NAMES levels still
+  needs a selectable one, because there is nothing to select otherwise; that failure now says so
+  instead of claiming no reasoning is exposed. An automatic-reasoning model also classifies as a
+  deep tier on the same evidence an adjustable one does, which matters because the cost proxy
+  reads that tier. Reported rather than left implicit: the pool's Reasoning column shows a
+  selector only where a level exists, and says "automatic" where the model reasons but nothing is
+  selectable.
+
+### Added
+
 - **Sync: public model facts and prices, researched on demand.** The host reports no pricing, so
   `preferCheaper` was shaping tie-breaks on a tier proxy that is identical across every route in a
   pool like this one — a switch that measured nothing. A **Sync** button in the model pool now

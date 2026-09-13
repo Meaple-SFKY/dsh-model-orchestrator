@@ -164,6 +164,23 @@ Showing the 7 route(s) this deployment offers for subagents;
 4 advertised route(s) are not selectable.
 ```
 
+### Providers that do not expose reasoning levels
+
+Not every provider offers a level to pick. DSH reports reasoning in three states and the pool
+shows which one a route is in:
+
+| State | What it means | What the pool shows |
+|---|---|---|
+| `adjustable` | The provider exposes levels (`low`, `high`, …) | A selector, whose options are the levels it reports |
+| `automatic` | The model reasons and the provider drives the depth | **automatic** — no selector, because there is nothing to select |
+| `none` | No reasoning is reported | A dash |
+
+The distinction matters in routing, not only in the panel. A capability that requires reasoning
+accepts both `adjustable` and `automatic`; a requirement that names a level (for example "must
+expose high") needs `adjustable`, since a level that cannot be selected cannot satisfy it. Setting
+a level for a route that reports none is refused when you set it, and ignored if it goes stale —
+sending an unsupported level would fail the child outright.
+
 ### Reasoning level per route
 
 The pool's **Reasoning** column is a selector, not a label. Its options are the levels the
@@ -607,7 +624,7 @@ pgrep -fa 'dsh --profile'
 ## Development
 
 ```sh
-node --test "test/*.test.js"   # 269 tests, no host required
+node --test "test/*.test.js"   # 271 tests, no host required
 node scripts/check-compat.mjs  # host compatibility report
 ```
 
