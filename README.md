@@ -727,7 +727,8 @@ lib/
   discovery.js      live pool discovery and capability profiling
   matching.js       task analysis, scoring, and route selection
   engine.js         orchestration tiers, delegation, aggregation
-  persistence.js    atomic state: preferences, descriptors, calibrations
+  persistence.js    atomic state: preferences, descriptors, calibrations, research
+  preferences.js    the ONE preference-patch implementation both configure surfaces call
   tools.js          the orchestrate_* model-facing tools
   schemas.js        tool names and parameter specs (host-free, so they are testable)
   locales.js        zh/en dictionaries for the UI (mirrored into the client bundle)
@@ -742,7 +743,7 @@ lib/
   agent-tree.js     subagent relationship tree for the board (pure, testable)
   route-policy.js   narrows discovery to the routes the deployment offers
   prompt.js         the routing-policy system prompt section
-  client.js         client bundle: settings page + session strip
+  client.js         client bundle: settings page + the Orchestrator board
   home.js, util.js  harness-home and value helpers
 ```
 

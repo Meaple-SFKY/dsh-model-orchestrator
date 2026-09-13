@@ -7,6 +7,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+
+- **Dead code and dead keys the review found.** The model pool's subscription API
+  (`EVIDENCE_SOURCES`, `onChange`, `setCalibrations` and the private listener set) had no caller
+  anywhere, so its emit path iterated an empty set on every changed refresh — removing it also
+  removed the comparison variable that existed only to feed it. `classifyTier` had a threshold
+  branch that returned exactly what the next line returned unconditionally, so the threshold never
+  decided anything. `rankModels` recomputed the source-confidence factor that `scoreCapability`
+  already returned for the same profile, which is the one place that return value went unused.
+  Eight locale keys nothing rendered are gone, along with three unused exports and a duplicate
+  `store.snapshot()` per model and per poll. And the two copies of `findDshInstall` in the tests
+  are one shared helper that now also builds a synthetic `node_modules`, so the three
+  compatibility checks can resolve the CLI package and actually run.
+
 ### Added
 
 - **The README is bilingual.** `README.zh.md` carries the same document in Chinese, with equal
