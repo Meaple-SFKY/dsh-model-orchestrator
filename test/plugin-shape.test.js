@@ -540,3 +540,22 @@ test('no ambient composer strip and no parallel task surface', () => {
     'the board must read the delegation graph from the host',
   )
 });
+
+test('the injected stylesheet holds no backtick', () => {
+  // Regression guard for a mistake made three times while editing: the board
+  // stylesheet lives in a template literal, so a backtick inside one of its CSS
+  // comments terminates the literal early and the bundle becomes a syntax error.
+  // `node --check` catches it, but only if it is run; this catches it in the suite.
+  const start = clientSource.indexOf('style.textContent = `')
+  assert.notEqual(start, -1, 'the stylesheet template literal must exist')
+  const end = clientSource.indexOf('`\n      document.head.appendChild(style)', start)
+  assert.notEqual(end, -1, 'the stylesheet template literal must be terminated')
+  const body = clientSource.slice(start + 'style.textContent = `'.length, end)
+  assert.ok(
+    !body.includes('`'),
+    'the board stylesheet must not contain a backtick; it would close the template literal',
+  )
+  // And it must still declare the width chain the board depends on.
+  assert.match(body, /\.dshmo-board\{/, 'the board root rule must be present')
+  assert.match(body, /--dsh-chat-content-width/, 'the width must follow the shell variable')
+});

@@ -331,8 +331,10 @@ column, so a view that paints full-bleed draws its content straight under those 
 Measured in a live session: the board column spans x 498–1272 while the handles sit at
 x 436 and x 1304 — clear of the content, which is where they belong.
 
-The constraint is `width: min(920px, 64%, 100%)` with `margin-inline: auto`; 64% mirrors
-the shell's adaptive content width and 920px is its ceiling.
+The board takes the shell's own content width, so dragging the transcript width handle
+resizes it too — the same behaviour the composer keeps on the Chat page. The width is a
+CSS chain (the shell's variable, then an observed copy of it, then the shell's 920px
+ceiling) inside a clamp with a floor, so an unresolved variable cannot collapse the view.
 
 ## Performance
 

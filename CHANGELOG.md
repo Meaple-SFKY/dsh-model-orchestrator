@@ -23,11 +23,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- **The board is a centred, width-constrained column**, matching the shipped Chat and
-  Trajectory views. The conversation shell positions the transcript's width handles
-  absolutely off the content column, so a full-bleed view drew its content under them.
-  Measured in a live session: content 498–1272, handles at 436 and 1304 — clear of the
-  content.
+- **The board now follows the transcript width handle.** The shell's width handles resize
+  the content column, and the board takes that same width, so dragging the handle resizes
+  this view exactly as it resizes the Chat page's composer. Implemented as a CSS width
+  chain — the shell's own variable, then an observed copy of it, then the shell's 920px
+  ceiling — inside a clamp with a floor, so an unresolved variable can never collapse the
+  view. The earlier fill-the-column layout put the board's content straight underneath
+  those handles, which read as a stray draggable bar over the board.
 
 ### Removed
 
