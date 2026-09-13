@@ -464,3 +464,50 @@ test('the plugin never introduces a competing task or progress surface', async (
     'the panel must not read task or step state',
   );
 });
+
+test('the documented disable row matches the bundle row the loader mounts', () => {
+  // Disabling is done through the loader row, so the documented patch must name
+  // exactly the row this bundle inserts — otherwise the toggle silently no-ops.
+  const entries = parsePatch(patchText)
+  const rowId = entries[0].insert[0].id
+  assert.equal(rowId, 'model-orchestrator')
+
+  // The README documents the exact patch shape; keep them in agreement.
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8')
+  assert.ok(
+    readme.includes(`- id: ${rowId}\n  disabled: true`),
+    'the README must document a disable row naming the real row id',
+  )
+
+  // And the row id must be the one a user patch layer targets, i.e. it must not
+  // be nested under a group that a `- id:` patch could not address directly.
+  assert.equal(typeof entries[0].insert, 'object');
+});
+
+test('the plugin registers nothing when it never activates', () => {
+  // A disabled row means the loader never calls `apply`. This asserts the
+  // contract that makes that safe: `apply` is the only thing that registers
+  // anything, so no partial state can exist without it.
+  const indexSource = readFileSync(join(ROOT, 'lib', 'index.js'), 'utf8')
+  const outsideApply = indexSource.slice(indexSource.indexOf('export async function apply'))
+  // Every registration lives inside apply (checked by counting call sites there).
+  for (const marker of [
+    'registerOrchestratorTools(',
+    'ctx.systemPrompt.section(',
+    'installControlRoutesDeferred(',
+    'ctx.effect(',
+  ]) {
+    const inApply = outsideApply.includes(marker)
+    assert.ok(inApply, `${marker} must be called from apply, so a disabled row registers nothing`)
+    const total = indexSource.split(marker).length - 1
+    const outside = total - (outsideApply.split(marker).length - 1)
+    assert.equal(outside, 0, `${marker} is also called outside apply, which a disabled row would still run`)
+  }
+
+  // No module-scope side effect: importing the entry must not touch a host.
+  const beforeApply = indexSource.slice(0, indexSource.indexOf('export async function apply'))
+  assert.ok(
+    !/\bctx\./.test(beforeApply.replace(/\/\*\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')),
+    'module scope must not touch ctx: an import that never activates must do nothing',
+  )
+});

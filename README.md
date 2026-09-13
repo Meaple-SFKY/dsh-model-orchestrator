@@ -184,7 +184,33 @@ and only the panel is unavailable.
 
 ### Disabling and removing
 
-The plugin is one bundle row, so it is managed like any other:
+There is **no universal enable/disable button** in the harness settings: the Plugins
+settings page configures plugins, it does not stop them. Turning a plugin off is done
+through the **loader row**, which is the official mechanism and needs no code change from
+the plugin.
+
+**Disable** by adding one row to the profile's user patch layer:
+
+```sh
+dsh plugin --profile <name> add dsh-model-orchestrator   # if not installed yet
+
+cat >> "$DSH_HOME/profiles/<name>/cordis.patch.yml" <<'YAML'
+- id: model-orchestrator
+  disabled: true
+YAML
+```
+
+Because a profile's `patchReload` is `live`, the change is hot-applied within about a
+second — no restart — and the loader re-applies the file on every boot, so the choice
+survives restarts. `disabled: false` force-enables the row again, overriding a lower
+layer that disabled it.
+
+While disabled the loader never calls the plugin's `apply`, so **no tool, prompt section,
+or control route is registered**. Re-enabling registers all of them again from live state;
+the plugin holds no task state that could go stale, and its teardown aborts any delegation
+still in flight.
+
+**Remove** entirely:
 
 ```sh
 dsh plugin --profile <name> remove dsh-model-orchestrator
@@ -193,6 +219,9 @@ dsh plugin --profile <name> remove dsh-model-orchestrator
 Removing it withdraws every tool, the prompt section, and the control routes on the next
 start; nothing else in the profile is affected. Because the plugin registers no service
 and holds no task state, removal cannot strand a session.
+
+> The community marketplace plugin only manages what it installed itself, so a plugin
+> added with `dsh plugin add` is not listed there for toggling. Use the patch row above.
 
 ### When the host is unsupported
 
