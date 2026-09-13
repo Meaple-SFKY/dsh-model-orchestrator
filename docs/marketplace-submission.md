@@ -34,7 +34,7 @@ name: Meaple-SFKY/dsh-model-orchestrator
 category: model
 description:
   en: Model routing for DeepSeek Harness, with a standing capability-to-model assignment table, per-route reasoning levels, and a user-triggered sync that researches public model prices.
-  zh: 为 DeepSeek Harness 提供模型路由：可持久化的「能力→模型」分工表、按路由的推理档位，以及手动触发的公开价格同步。
+  zh: 为 DeepSeek Harness 提供模型路由：可持久化的「能力→模型」分工表、按路由的推理档位，以及手动触发、由模型联网核对公开价格的同步。
 ```
 
 Notes that matter to a reviewer:
@@ -47,7 +47,9 @@ Notes that matter to a reviewer:
   them"), so it names three things that are true and countable: the assignment table, the per-route
   reasoning levels, and the sync. It deliberately does not say "smartest routing" or "best model
   selection".
-- The `zh` line is optional; it is supplied because this project maintains both languages.
+- The `zh` line is optional; it is supplied because this project maintains both languages. It is
+  the SAME sentence as the one in the repository's GitHub *About* field, so the market card, the
+  repository listing and the registry `en`/`zh` pair cannot drift apart.
 
 ## Requirements the repository already meets
 
