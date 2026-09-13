@@ -357,3 +357,105 @@ test('an unknown capability produces an actionable dispatch error', async (t) =>
     h.cleanup();
   }
 });
+
+test('a per-unit preference at the TOP level is folded in and reported', async (t) => {
+  if (install === undefined) return t.skip('no DSH installation is present');
+  // Reproduced from a real session: the calling model put `unitModelPreference` at
+  // the top level instead of inside `analysis` — a natural mistake, since `task` and
+  // `tier` are siblings there. The DSL's root is an open object, so the property was
+  // accepted and then read by nothing, and a run whose caller had named a different
+  // model for every unit routed all of them to the same one without a word.
+  const h = await harness(install);
+  try {
+    const tool = h.registered.find((entry) => entry.name === 'orchestrate_plan');
+    const value = await tool.execute(
+      {
+        task: 'Summarise the attached report.',
+        analysis: {
+          summary: 'summarise',
+          complexity: 'specialist',
+          requirements: [{ capability: 'document.processing', weight: 0.5 }],
+        },
+        // Top level, deliberately: this is the shape the caller actually sent.
+        unitModelPreference: [
+          { capability: 'document.processing', routes: [{ route: 'p1/m-fast' }] },
+        ],
+      },
+      execution(),
+    );
+    assert.equal(value.ok, true);
+    assert.deepEqual(value.foldedIntoAnalysis, ['unitModelPreference'], 'the fold must be reported');
+    const unit = value.units.find((entry) => entry.capabilityId === 'document.processing');
+    assert.equal(unit.route, 'p1/m-fast', 'the folded preference must actually decide the route');
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('a preference inside analysis is neither folded nor reported', async (t) => {
+  if (install === undefined) return t.skip('no DSH installation is present');
+  const h = await harness(install);
+  try {
+    const tool = h.registered.find((entry) => entry.name === 'orchestrate_plan');
+    const value = await tool.execute(
+      {
+        task: 'Summarise the attached report.',
+        analysis: {
+          summary: 'summarise',
+          complexity: 'specialist',
+          requirements: [{ capability: 'document.processing', weight: 0.5 }],
+          unitModelPreference: [
+            { capability: 'document.processing', routes: [{ route: 'p1/m-fast' }] },
+          ],
+        },
+      },
+      execution(),
+    );
+    assert.equal(value.foldedIntoAnalysis, undefined, 'nothing was folded');
+    const unit = value.units.find((entry) => entry.capabilityId === 'document.processing');
+    assert.equal(unit.route, 'p1/m-fast');
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('an unrecognised top-level argument is reported, not silently dropped', async (t) => {
+  if (install === undefined) return t.skip('no DSH installation is present');
+  const h = await harness(install);
+  try {
+    const tool = h.registered.find((entry) => entry.name === 'orchestrate_plan');
+    const value = await tool.execute(
+      {
+        task: 'Implement the parser.',
+        analysis: { summary: 'implement', complexity: 'specialist', requirements: [{ capability: 'software.implementation', weight: 0.9 }] },
+        // A plausible misspelling of `unitModelPreference`.
+        unitModelPreferences: [{ capability: 'software.implementation', routes: [{ route: 'p1/m-fast' }] }],
+      },
+      execution(),
+    );
+    assert.deepEqual(value.unusedArguments, ['unitModelPreferences'], 'the caller must be told');
+    assert.equal(value.ok, true, 'and the plan still runs');
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('the plan tool forwards a forced tier instead of ignoring it', async (t) => {
+  if (install === undefined) return t.skip('no DSH installation is present');
+  const h = await harness(install);
+  try {
+    const tool = h.registered.find((entry) => entry.name === 'orchestrate_plan');
+    const value = await tool.execute(
+      {
+        task: 'what is a monad',
+        analysis: { summary: 'definition', complexity: 'trivial', requirements: [] },
+        tier: 'specialist',
+      },
+      execution(),
+    );
+    assert.equal(value.tier, 'specialist', 'a forced tier must reach the engine');
+    assert.equal(value.unusedArguments, undefined, 'and it is not an unrecognised argument');
+  } finally {
+    h.cleanup();
+  }
+});

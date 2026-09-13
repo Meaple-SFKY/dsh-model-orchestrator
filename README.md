@@ -297,6 +297,11 @@ Two things this deliberately is not:
   The full ladder is: the calling model's per-unit choice → this table → the calling model's
   task-level preference → the measured ranking.
 
+  Both preferences live **inside `analysis`** — `modelPreference` for the task, `unitModelPreference`
+  for one unit. A copy placed at the top level of the call is folded in and reported as
+  `foldedIntoAnalysis`, because that mistake once sent a seven-unit plan to one model in silence; any
+  *other* argument the tool does not recognise is reported as `unusedArguments` rather than dropped.
+
 Capabilities in one cluster are split into separate units when their assignments differ. That
 is what makes "architecture to GPT, implementation to DeepSeek" real: both live in the
 `software` cluster, and without the split they would merge into one unit on one model and the

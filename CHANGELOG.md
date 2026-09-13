@@ -5,6 +5,23 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] — 2026-09-14
+
+### Fixed
+
+- **A model preference placed at the top level was silently discarded.** Reported from a real
+  research run whose caller had named a different model for every unit: all seven landed on the same
+  one, and the result carried no warning. The schema nests `modelPreference` and
+  `unitModelPreference` inside `analysis`, but the tool-parameter DSL accepts an extra root property
+  without complaint, and no tool handler ever read the top-level copy — the same
+  declared-then-ignored shape as `decisionCues` before it. Preferences are now folded into `analysis`
+  from the top level and reported as `foldedIntoAnalysis`, so the value is used *and* the caller learns
+  where it belongs; any other argument the tool does not recognise is reported as `unusedArguments`
+  instead of vanishing.
+- **`orchestrate_plan` ignored a forced `tier`.** The tool never declared the parameter and
+  `engine.plan` never consulted one, so `{ tier: "multi-agent" }` was a second silently-ignored
+  argument in the same call. It is declared, forwarded, and honoured exactly as `run` honours it.
+
 ## [0.2.1] — 2026-09-14
 
 ### Fixed
@@ -595,6 +612,7 @@ Initial release. Generic, domain-agnostic Model Orchestrator for DSH `0.1.5-rc.1
 - Only `spawn` and `fork` subagent providers are consulted; any registered provider that
   advertises the `agentOptions` capability works.
 
+[0.2.2]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/releases/tag/v0.1.0
