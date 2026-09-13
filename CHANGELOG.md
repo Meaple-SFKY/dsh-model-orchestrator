@@ -9,6 +9,32 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Orchestrator board** — a Conversation view beside `Chat` and `Trajectory` showing the
+  session's delegation graph, live stats, and routing capacity. The graph is built from the
+  harness's own durable session tree (`ctx.subagents.listDescendants`); the plugin keeps no
+  copy of the topology.
+- `lib/agent-tree.js`: turns the flat descendant listing into a parent/child tree and
+  display rows. Handles orphans (re-attached to the root rather than dropped), duplicates,
+  cycles, malformed rows, and a node cap, each covered by tests.
+- `scripts/locale-tool.py`: edits a locale value by key without disturbing neighbouring
+  entries, because the dictionary exists twice (source of truth plus the self-contained
+  client bundle).
+
+### Changed
+
+- The ambient composer strip is gone. The board replaces it and reads the live tree
+  instead of a local mirror.
+
+### Fixed
+
+- **Multi-unit plans now chain.** Chaining was gated on the routing tier, so a task judged
+  `specialist` with several units ran every unit in parallel (`dependsOn: []`), and later
+  stages never saw earlier findings — observed live on a "research, then review, then
+  summarize" task. Serialization is now a property of the graph, not the tier.
+
+
+### Added
+
 - **Localization.** Every user-facing string now lives in the plugin's own
   `modelOrchestrator` locale namespace and follows the harness language setting, so the
   panel switches between Chinese and English with the rest of the UI. Strings a **model**

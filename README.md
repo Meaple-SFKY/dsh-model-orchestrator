@@ -252,9 +252,22 @@ upgrade; calibrations for routes that left the pool are pruned automatically.
 ### Interface
 
 **Settings → Model Orchestrator** is the full page: mode, capability areas, the live pool
-with the evidence behind each profile, preferences, a routing preview, and current routing
-capacity. A compact strip above the composer shows the mode and pool size for the session,
-with an expandable list.
+with the basis behind each assessment, preferences, and a routing preview.
+
+**Orchestrator** is a Conversation view, a sibling of `Chat` and `Trajectory`. It is the
+board for the session you are looking at, and it has three parts:
+
+- **Delegation graph** — every subagent the orchestrator started for this task, indented
+  under the agent that started it, with its mode (`one-shot` / `continuable`) and live
+  activity. Topology is read from the harness's own durable session tree
+  (`ctx.subagents.listDescendants`), refreshed every few seconds, so it shows the
+  delegations that actually exist rather than a mirrored copy.
+- **Stats** — how many delegations there are, how many are running, and how many branches.
+- **Routing capacity** — the current mode, live pool size, in-flight delegations, and the
+  capability count.
+
+There is deliberately no ambient strip above the composer: the board is where delegated
+work is inspected, and a strip would both duplicate it and crowd the composer.
 
 Both follow the harness language setting: every user-facing string lives in the plugin's
 `modelOrchestrator` locale namespace (`lib/locales.js`, mirrored inside the self-contained
@@ -275,7 +288,7 @@ so the panel reads the real pool from the host and never guesses.
 ## Development
 
 ```sh
-node --test "test/*.test.js"   # 113 tests, no host required
+node --test "test/*.test.js"   # 137 tests, no host required
 node scripts/check-compat.mjs  # host compatibility report
 ```
 
@@ -304,6 +317,7 @@ lib/
   schemas.js        tool names and parameter specs (host-free, so they are testable)
   locales.js        zh/en dictionaries for the UI (mirrored into the client bundle)
   routes.js         host control routes for the browser panel
+  agent-tree.js     subagent relationship tree for the board (pure, testable)
   prompt.js         the routing-policy system prompt section
   client.js         client bundle: settings page + session strip
   home.js, util.js  harness-home and value helpers

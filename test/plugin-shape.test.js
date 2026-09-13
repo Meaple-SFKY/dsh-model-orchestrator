@@ -313,8 +313,18 @@ test('the client bundle is loadable through the harness module loader', async ()
   }
   plugin.apply(ctx)
 
-  assert.deepEqual(injections.sort(), ['conversation.input.dock', 'settings.section'])
+  assert.deepEqual(injections.sort(), ['conversation.view', 'settings.section'])
   assert.equal(registered.length, 2)
+  // The board is a first-class Conversation view beside Chat and Trajectory, not
+  // an ambient strip over the composer.
+  const view = registered.find((entry) => entry.options.name === 'conversation.view')
+  assert.ok(view, 'the board must register into conversation.view')
+  assert.equal(view.options.order, 20, 'it sits after Chat (0) and Trajectory (10)')
+  assert.equal(
+    registered.some((entry) => entry.options.name === 'conversation.input.dock'),
+    false,
+    'the plugin must not add a composer strip',
+  )
   assert.equal(localeRegistrations.length, 1, 'the plugin must register one locale namespace')
   assert.equal(localeRegistrations[0].ns, 'modelOrchestrator')
   for (const entry of registered) {
@@ -509,5 +519,24 @@ test('the plugin registers nothing when it never activates', () => {
   assert.ok(
     !/\bctx\./.test(beforeApply.replace(/\/\*\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')),
     'module scope must not touch ctx: an import that never activates must do nothing',
+  )
+});
+
+test('no ambient composer strip and no parallel task surface', () => {
+  // Earlier the plugin rendered a strip above the composer. The board replaced
+  // it, and this guards against it creeping back: an ambient strip duplicates
+  // the board while crowding the composer.
+  assert.ok(
+    !/conversation\.input\.dock/.test(clientSource),
+    'the client must not register a composer strip',
+  )
+  assert.ok(
+    !/OrchestratorDock/.test(clientSource),
+    'the retired dock component must be gone, not merely unused',
+  )
+  // And the board must read the harness session tree rather than keep a copy.
+  assert.ok(
+    /ROUTES\.tree|\/tree/.test(clientSource),
+    'the board must read the delegation graph from the host',
   )
 });

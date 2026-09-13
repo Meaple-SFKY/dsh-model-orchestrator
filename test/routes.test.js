@@ -36,6 +36,7 @@ function deps() {
     store,
     logger: undefined,
     host: { name: 'dsh-model-orchestrator', version: '0.1.0', range: '0.1.5-rc.1', runningVersion: '0.1.5-rc.1', optionalMissing: [] },
+    subagents: undefined,
     cleanup: () => rmSync(directory, { recursive: true, force: true }),
   };
 }
@@ -56,11 +57,12 @@ function fakeServer() {
 }
 
 /** A context exposing a web server by fast path or by injection. */
-function fakeContext(server, { injectable = true } = {}) {
+function fakeContext(server, { injectable = true, services = {} } = {}) {
   const injections = [];
   const ctx = {
     get(name) {
       if (name === 'webServer') return server;
+      if (name in services) return services[name];
       return undefined;
     },
     inject(names, callback) {
@@ -114,10 +116,10 @@ test('the routes mount on the fast path when a web server already exists', () =>
     const dispose = installControlRoutesDeferred(ctx, d);
     assert.deepEqual(
       [...server.routes.keys()].sort(),
-      [`${ROUTE_PREFIX}/configure`, `${ROUTE_PREFIX}/plan`, `${ROUTE_PREFIX}/state`],
+      [`${ROUTE_PREFIX}/configure`, `${ROUTE_PREFIX}/plan`, `${ROUTE_PREFIX}/state`, `${ROUTE_PREFIX}/tree`],
     );
     dispose();
-    assert.equal(server.disposed.length, 3, 'every route must have a disposer');
+    assert.equal(server.disposed.length, 4, 'every route must have a disposer');
   } finally {
     d.cleanup();
   }
@@ -356,6 +358,96 @@ test('each model carries a pool-relative rating and its declared domains', async
     for (const forbidden of ['costindex', 'costlow', 'costmed', '"cost"']) {
       assert.ok(!serialized.includes(forbidden), `the state document must not expose ${forbidden}`);
     }
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('the tree route is installed and refuses a missing session', async () => {
+  const d = deps();
+  try {
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const route = server.routes.get(`${ROUTE_PREFIX}/tree`);
+    assert.ok(route, 'the board needs a tree route');
+
+    const missing = exchange({ method: 'GET' });
+    missing.req.url = `${ROUTE_PREFIX}/tree`;
+    await route.handler(missing.req, missing.res);
+    assert.equal(missing.captured.status, 400);
+    assert.match(String(missing.captured.body.error), /session is required/);
+
+    const wrongMethod = exchange({ method: 'POST' });
+    wrongMethod.req.url = `${ROUTE_PREFIX}/tree?session=root`;
+    await route.handler(wrongMethod.req, wrongMethod.res);
+    assert.equal(wrongMethod.captured.status, 405);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('the tree route reports an empty graph when no registry is mounted', async () => {
+  const d = deps();
+  try {
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const route = server.routes.get(`${ROUTE_PREFIX}/tree`);
+    const req = exchange({ method: 'GET' });
+    req.req.url = `${ROUTE_PREFIX}/tree?session=root`;
+    await route.handler(req.req, req.res);
+    // A capability absence, not a crash: the panel must be able to say so.
+    assert.equal(req.captured.status, 503);
+    assert.match(String(req.captured.body.error), /subagent registry is unavailable/);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('the tree route returns the topology the registry reports', async () => {
+  const d = deps();
+  try {
+    const subagents = {
+      listDescendants: async (root) => [
+        { kind: 'child', id: 'kid', parentId: root, depth: 1, mode: 'one-shot', activity: 'running', hasChildren: false, label: 'research' },
+      ],
+    };
+    const server = fakeServer();
+    const { ctx } = fakeContext(server, { services: { subagents } });
+    installControlRoutesDeferred(ctx, d);
+    const route = server.routes.get(`${ROUTE_PREFIX}/tree`);
+    const req = exchange({ method: 'GET' });
+    req.req.url = `${ROUTE_PREFIX}/tree?session=root`;
+    await route.handler(req.req, req.res);
+    assert.equal(req.captured.status, 200);
+    assert.equal(req.captured.body.ok, true);
+    assert.equal(req.captured.body.counts.total, 1);
+    assert.equal(req.captured.body.rows[0].label, 'research');
+    assert.equal(req.captured.body.rows[0].activity, 'running');
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('a failing listing is reported as unavailable, not as an empty graph', async () => {
+  const d = deps();
+  try {
+    const subagents = {
+      listDescendants: async () => {
+        throw new Error('no projection registry is mounted');
+      },
+    };
+    const server = fakeServer();
+    const { ctx } = fakeContext(server, { services: { subagents } });
+    installControlRoutesDeferred(ctx, d);
+    const route = server.routes.get(`${ROUTE_PREFIX}/tree`);
+    const req = exchange({ method: 'GET' });
+    req.req.url = `${ROUTE_PREFIX}/tree?session=root`;
+    await route.handler(req.req, req.res);
+    assert.equal(req.captured.status, 200);
+    assert.equal(req.captured.body.ok, false);
+    assert.match(req.captured.body.error, /projection registry/);
   } finally {
     d.cleanup();
   }
