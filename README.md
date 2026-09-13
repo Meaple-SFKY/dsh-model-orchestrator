@@ -340,6 +340,13 @@ upgrade; calibrations for routes that left the pool are pruned automatically.
 **Settings → Model Orchestrator** is the full page: mode, capability areas, the live pool
 with the basis behind each assessment, preferences, and a routing preview.
 
+The **capability areas** belong to Guided mode, and the page says so: in Auto the panel is
+collapsed with a one-line explanation of where it is, and choosing Guided reveals it with a
+short slide-and-fade instead of swapping the layout instantly. The transition is ~340 ms,
+`prefers-reduced-motion: reduce` switches it off entirely, and the copy names the modes the
+same way the buttons do (`自动` / `引导`, never a mix of the translated label and the English
+mode name).
+
 **Orchestrator** is a Conversation view, a sibling of `Chat` and `Trajectory`:
 
 ![The Orchestrator board showing two delegations on different models](docs/board-two-models.png)

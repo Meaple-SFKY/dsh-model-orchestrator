@@ -7,6 +7,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The capability areas are now gated on Guided mode, and reveal themselves.** They were
+  rendered unconditionally, so in Auto the page offered a control that changed nothing — a list
+  whose contents are never consulted reads as broken. The panel is now collapsed in Auto behind
+  a one-line explanation of where it went, and choosing Guided slides and fades it in over
+  ~340 ms instead of swapping the layout. The transition is a stylesheet class rather than
+  inline styles, because `prefers-reduced-motion: reduce` has to be able to switch it off. The
+  panel's own mode copy was rewritten to match the buttons: the Chinese text used to say
+  "Auto"/"Guided" while the buttons said 自动/引导, which made the two modes hard to follow —
+  the same complaint that produced the earlier copy pass. The capability copy now says 引导 too,
+  and two lines were added so the collapsed state explains itself rather than looking missing.
+
 ### Added
 
 - **Reasoning level per route, chosen in the model pool and applied at dispatch.** The

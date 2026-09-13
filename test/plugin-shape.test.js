@@ -558,21 +558,53 @@ test('no ambient composer strip and no parallel task surface', () => {
   )
 });
 
-test('the injected stylesheet holds no backtick', () => {
-  // Regression guard for a mistake made three times while editing: the board
+test('no injected stylesheet holds a backtick, and the board keeps its width chain', () => {
+  // Regression guard for a mistake made three times while editing: an injected
   // stylesheet lives in a template literal, so a backtick inside one of its CSS
   // comments terminates the literal early and the bundle becomes a syntax error.
   // `node --check` catches it, but only if it is run; this catches it in the suite.
-  const start = clientSource.indexOf('style.textContent = `')
-  assert.notEqual(start, -1, 'the stylesheet template literal must exist')
-  const end = clientSource.indexOf('`\n      document.head.appendChild(style)', start)
-  assert.notEqual(end, -1, 'the stylesheet template literal must be terminated')
-  const body = clientSource.slice(start + 'style.textContent = `'.length, end)
+  //
+  // Every stylesheet is checked, not just the first: the panel and the board each
+  // inject one, and a guard that silently inspected only one of them would pass
+  // while the other was broken.
+  const marker = 'style.textContent = `'
+  const sheets = []
+  for (let at = clientSource.indexOf(marker); at !== -1; at = clientSource.indexOf(marker, at + 1)) {
+    const end = clientSource.indexOf('`', at + marker.length)
+    assert.notEqual(end, -1, 'every stylesheet template literal must be terminated')
+    sheets.push(clientSource.slice(at + marker.length, end))
+  }
+  assert.ok(sheets.length >= 2, `expected a panel and a board stylesheet, found ${sheets.length}`);
+  for (const body of sheets) {
+    assert.ok(!body.includes('`'), 'no injected stylesheet may contain a backtick');
+  }
+
+  // The board's own stylesheet must still declare the width chain it depends on.
+  const board = sheets.find((body) => body.includes('.dshmo-board{'))
+  assert.ok(board !== undefined, 'the board root rule must be present')
+  assert.match(board, /--dsh-chat-content-width/, 'the width must follow the shell variable');
+});;
+
+test('the capability areas are gated on Guided and revealed with a transition', () => {
+  // They were rendered unconditionally, so in Auto the panel offered a control
+  // that changed nothing. The gate is pinned here because a refactor that drops it
+  // would look harmless and read as a broken control to the user.
+  assert.match(clientSource, /useReveal\(state\?\.mode === 'guided'\)/, 'the picker must be gated on Guided');
   assert.ok(
-    !body.includes('`'),
-    'the board stylesheet must not contain a backtick; it would close the template literal',
-  )
-  // And it must still declare the width chain the board depends on.
-  assert.match(body, /\.dshmo-board\{/, 'the board root rule must be present')
-  assert.match(body, /--dsh-chat-content-width/, 'the width must follow the shell variable')
+    /reveal\.mounted[\s\S]{0,400}CapabilityPicker/.test(clientSource),
+    'the picker must render through the reveal wrapper, not bare',
+  );
+  const uses = [...clientSource.matchAll(/h\(CapabilityPicker/g)].length;
+  assert.equal(uses, 1, 'the picker must be rendered in exactly one place — inside the reveal');
+
+  // The transition itself, including the reduced-motion escape hatch.
+  assert.match(clientSource, /\.dshmo-reveal\{/, 'the reveal rule must exist');
+  assert.match(clientSource, /\.dshmo-reveal\.is-open\{/, 'the open state must be class-driven');
+  assert.match(clientSource, /prefers-reduced-motion: reduce/, 'motion must be switchable off');
+
+  // The exit delay must outlast the CSS transition, or the collapse is cut short.
+  const css = /\.dshmo-reveal\{[\s\S]*?max-height (\d+)ms/.exec(clientSource);
+  const js = /setMounted\(false\), (\d+)\)/.exec(clientSource);
+  assert.ok(css !== null && js !== null, 'both durations must be present');
+  assert.ok(Number(js[1]) >= Number(css[1]), `unmount (${js[1]}ms) must not precede the transition (${css[1]}ms)`);
 });
