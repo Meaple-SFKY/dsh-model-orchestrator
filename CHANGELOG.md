@@ -7,6 +7,35 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Model selection is now informed by the calling model, under the plugin's constraints.**
+  The plugin measures what the harness exposes and enforces the deployment's route policy, but
+  it cannot know that a given route id is a vision-strong or maths-strong public model — a
+  judgement the calling model already has and the plugin must not invent. `orchestrate_run` and
+  `orchestrate_plan` now accept `analysis.modelPreference`: named routes, most preferred first,
+  with reasons. A preference reorders eligible candidates, can never revive a route that the
+  requirements rejected, and any name the pool does not recognise is reported back rather than
+  dropped. Malformed entries are discarded, and an absent preference leaves the measured
+  ranking untouched. The tool description tells the calling model to use its own knowledge.
+
+### Fixed
+
+- **Capability-based allocation actually discriminated, which it did not before.** Three
+  defects, all observed against the live pool of eleven routes:
+  - A task that **stated its own size** ("900,000 token", "1.05m token") produced no capacity
+    requirement at all, so a route with a 500K window stayed eligible. Explicit sizes in both
+    English and Chinese are now read and enforced, while a bare small count ("12 items") is
+    correctly ignored.
+  - A **needs-image requirement was not derived from the task text** ("attached image",
+    "附图"), so text-only routes competed for work they cannot do. With the live pool this now
+    rejects them.
+  - A descriptor with **no matching keyword scored a hard zero**, and because descriptors
+    combine by geometric mean that single zero vetoed an eligible model outright — so routing
+    turned on whose description happened to contain a keyword. Silence now scores a small
+    floor: it cannot veto, and it cannot outrank stated evidence either.
+
+
 ### Fixed
 
 - **Activation no longer performs network I/O, which was slowing every profile boot.**

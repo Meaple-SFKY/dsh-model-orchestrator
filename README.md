@@ -322,6 +322,44 @@ Both are served by the host over three same-origin routes (`state`, `configure`,
 The browser half cannot enumerate models itself — the LLM listing surface is host-only —
 so the panel reads the real pool from the host and never guesses.
 
+## Who decides which model
+
+Selection is a division of labour, because neither side can do it alone.
+
+**The plugin** knows the deployment: it discovers the live routes, applies the subagent
+route policy, enforces hard requirements (a stated context floor, a required modality), and
+reports measured facts — context window, modalities, output budget, reasoning tiers.
+
+**The calling model** knows the models. Whether an opaque route id corresponds to a
+vision-strong model or a maths-strong one is public knowledge the plugin does not have and
+must not invent; a deployment's aliases also need not match any public model name.
+
+So `orchestrate_run` and `orchestrate_plan` accept `analysis.modelPreference`: the calling
+model names the routes it judges best, most preferred first, with its reasoning. The rules:
+
+| Rule | Why |
+|---|---|
+| A preference **reorders** eligible candidates | it is a judgement, not a constraint |
+| A preference **cannot revive a rejected route** | your requirements stay authoritative |
+| An **unrecognised name is reported back** | never silently dropped |
+| A **malformed entry is discarded** | no half-built route can be invented |
+| With **no preference, the measured ranking stands** | the plugin still works alone |
+
+The tool description tells the calling model this explicitly, so it reaches for its own model
+knowledge rather than trusting a route id it cannot interpret.
+
+### What the plugin will not do
+
+It will not merge two routes that share a model name. In the deployment measured here,
+`deepseek-official/deepseek-flash` and `commandcode/deepseek/deepseek-v4.1-flash` name the
+same public model but differ in output budget by 4x (256k against 64k), sit behind different
+providers, and are billed differently. Collapsing them would discard real, measured
+differences and break routing, which needs exact routes.
+
+It also will not fetch public model data from the network. The route ids in a deployment are
+frequently not public models at all, and a plugin that guessed at their identity from a name
+would be inventing capability rather than measuring it.
+
 ## Layout
 
 The board renders as a **centred, width-constrained column**, matching how the shipped
