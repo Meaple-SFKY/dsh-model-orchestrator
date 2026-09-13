@@ -7,6 +7,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`/model-orchestrator <task>`** — an explicit switch for the case the routing policy cannot
+  force: the calling model deciding to delegate on its own. A command handler runs *without the
+  command line reaching the model* (the host's command contract, verified against
+  `@deepseek-ai/dsh-commands` and the shipped `/goal`), so the handler delivers the task itself
+  as an ordinary user message — the same `agent.followup(...)` mechanism `/goal` uses — together
+  with the instruction to call `orchestrate_run` and to name per-unit routes when the units
+  differ in kind. `/model-orchestrator status` reports live routing capacity and opens no turn.
+  `recordInput: false`, because the follow-up message owns the payload. `commands` is declared
+  an optional service: without it the command is simply not registered and every tool, prompt
+  section, and control route still works. The module imports nothing from the host at load time,
+  so its tests run on a machine with no DSH installed.
+
 ### Fixed
 
 - **A caller-supplied analysis was discarded whenever it stated no requirements.** The intake

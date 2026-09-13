@@ -189,6 +189,38 @@ Argument specs are a restricted DSL; `type: 'object'` requires
 `PromptSection`. Scoped sections shadow global ones with the same name. `text` may be a
 function of the assembly context.
 
+### 1.8.1 Human commands — `ctx.commands` (`@deepseek-ai/dsh-commands`)
+
+```ts
+register(definition: CommandDefinition): () => void   // global, or agent-scoped via an injected child
+list(agent: Agent): readonly CommandDescriptor[]
+find(agent: Agent, name: string): CommandDefinition | undefined
+execute(agent, line, submittedAttachments, signal): Promise<CommandExecution | undefined>
+```
+
+`CommandDefinition` is `{ name, description, input?: { hint, attachments? }, recordInput?, handler }`,
+where `name` is lowercase and carries no slash, and `handler` returns
+`{ kind: 'success' | 'error', text? }` — rendered **directly by the dispatching UI**.
+
+Two properties decide how a command has to be written:
+
+1. **The handler runs without the command line reaching the model.** The registry is a
+   human surface, not a prompt path: `/goal <objective>` stores a goal through the goal
+   service, and any text the model is meant to see has to be delivered by the handler
+   itself. The shipped `/goal` command does that with
+   `invocation.agent.followup(createUserMessage({ content, source: { kind: 'user' } }))`
+   — the same API this plugin uses, verified against `@deepseek-ai/dsh-agent`
+   (`Agent.followup(message: UserMessage): void` — "queue an ordinary follow-up turn and
+   wake the driver"). `createUserMessage` comes from `@deepseek-ai/dsh-llm`, already a
+   declared peer of this plugin.
+2. **`recordInput: false` exists for exactly this shape.** The session logs `command/run`
+   with the verbatim `args` by default; a command whose follow-up message owns the payload
+   sets it false so the user's words are not stored twice.
+
+`commands` is resolved through `ctx.inject` like `webServer` (§1.10), and is absent from
+some compositions, so it is declared an optional service: without it the command is simply
+not registered.
+
 ### 1.9 Client UI
 
 - A static client half is a pre-built bundle calling

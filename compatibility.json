@@ -20,7 +20,7 @@
     "tools": ["register"],
     "systemPrompt": ["section"]
   },
-  "optionalServices": ["workflowEngine", "webServer", "connection"],
+  "optionalServices": ["workflowEngine", "webServer", "connection", "commands"],
   "compatibilityBehaviour": {
     "onIncompatibleHost": "refuse-activation",
     "registersNothingWhenIncompatible": true,
@@ -30,6 +30,7 @@
     "engines.dsh is the authoritative host range; dsh.engines.dsh mirrors it for marketplace discovery.",
     "peerDependencies declare the host packages this plugin imports and are checked independently.",
     "The plugin re-checks the host on every activation, so upgrading into an unsupported host is refused rather than run.",
+    "`commands` is optional: without it the /model-orchestrator command is not registered and every tool, prompt section, and control route still works.",
     "Run `node scripts/check-compat.mjs` for a standalone host-compatibility report."
   ]
 }

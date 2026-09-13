@@ -89,9 +89,34 @@ Nothing to configure. Ask for something and the agent routes it:
 
 You can also steer it explicitly:
 
+- **`/model-orchestrator <task>`** — route one task through the orchestrator, whatever the
+  agent would otherwise have decided. See below.
 - **Settings → Model Orchestrator** — mode, capability areas, cost preference,
   parallelism, route allow/deny lists, live pool, routing preview, recent runs.
 - **The routing strip above the composer** — the current mode and live pool at a glance.
+
+### The `/model-orchestrator` command
+
+Automatic routing is the default, but nothing *forces* the calling model to route rather
+than spawn subagents itself — and a live session was observed delegating four heterogeneous
+research units through the native `subagent` tool, leaving every child on the deployment's
+single default model. The command is the explicit switch for exactly that case:
+
+```
+/model-orchestrator 分析这个季度的销售数据并写成一份给管理层看的总结报告，包含趋势图表和三条行动建议
+/model-orchestrator status
+```
+
+A handler runs **without the command line reaching the model** (that is the host's command
+contract), so the command delivers the task itself, as an ordinary user message, together
+with the instruction to call `orchestrate_run` and to name per-unit routes when the units
+differ in kind. The captain then owns the result as usual.
+
+Honest limits: this makes the intent explicit and reliable to deliver, but the agent still
+performs the routing — the command does not bypass the captain, and it does not make
+orchestration automatic. Automatic remains the default; this is for when you want it
+guaranteed. `recordInput: false` keeps the task from being logged twice, and the command is
+only registered when the deployment mounts the `commands` service.
 
 ### Tools
 
@@ -497,6 +522,7 @@ lib/
   schemas.js        tool names and parameter specs (host-free, so they are testable)
   locales.js        zh/en dictionaries for the UI (mirrored into the client bundle)
   routes.js         host control routes for the browser panel
+  commands.js       the /model-orchestrator human command (host-free, so it is testable)
   agent-tree.js     subagent relationship tree for the board (pure, testable)
   route-policy.js   narrows discovery to the routes the deployment offers
   prompt.js         the routing-policy system prompt section
