@@ -9,6 +9,31 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A caller-supplied analysis was discarded whenever it stated no requirements.** The intake
+  gated on the requirement count, so an analysis carrying a summary, a complexity and model
+  preferences but no `requirements` fell through to the local vocabulary **whole**: the caller's
+  complexity claim, and more damagingly its `modelPreference` / `unitModelPreference`, silently
+  did nothing. Observed live — a plan whose preferences named two different routes routed both
+  units to the same measured top model, and nothing in the result said so. The requirement set
+  is the one field a caller may legitimately leave out, so it is now filled from the vocabulary
+  while every other supplied field is kept, and the result reports `source: "model+local"`.
+
+### Changed
+
+- **The routing policy now says when to route instead of spawning natively.** Observed live: a
+  captain delegated four heterogeneous research units through the native `subagent` tool with no
+  route, so every child inherited the deployment's single default child model — four different
+  research areas, one model. The section now states the trigger (units that differ in kind) and
+  the failure it prevents (a child spawned without an explicit route inherits one default), and
+  `orchestrate_run` / `orchestrate_dispatch` each say in their own description why they are
+  preferable to a native `subagent` call when the model choice matters. The plugin cannot forbid
+  the native tool — it must not replace DSH's native execution — so steering the captain is the
+  only lever it has, and this is it.
+- **Guided mode's prompt line was ungrammatical**: "Mode: Guides the user selected the
+  capability areas…" now reads "Mode: Guided. The user selected the capability areas…".
+
+### Fixed
+
 - **`orchestrate_dispatch` delegations reached the board with no route.** The board recovers a
   delegation's route from its label, because the host's descendant listing
   (`ctx.subagents.listDescendants`) reports a child's `mode` and `label` and nothing about its

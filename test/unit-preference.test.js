@@ -204,3 +204,39 @@ test('the most specific target wins for the unit it names', async () => {
   });
   assert.equal(routed(run).multimodal, 'commandcode/gemini-3.8-flash', 'the specific target overrides the cluster');
 });
+
+test('a per-unit preference survives a caller that states no requirements', async () => {
+  // Regression, observed live. An analysis carrying summary, complexity and
+  // preferences but NO requirements was discarded whole, because the intake gated
+  // on the requirement count. The caller's preferences silently did nothing and
+  // every unit fell back to the same measured top route — which is exactly the
+  // complaint that four heterogeneous research units all ran on one model.
+  const { engine } = harness();
+  const task = '用 pandas 读取 csv 并画一张柱状图';
+
+  // Read what the vocabulary derives on its own, so the test does not have to
+  // guess a capability id, and pick a route the measured ranking did NOT choose
+  // (it is listed as an eligible alternative).
+  const baseline = await engine.plan({ task });
+  const unit = baseline.units[0];
+  assert.ok(unit, 'the vocabulary must derive at least one unit for this task');
+  const alternative = (unit.alternatives ?? []).find((entry) => entry.route !== unit.route);
+  assert.ok(alternative, 'the harness pool must offer a second eligible route');
+
+  const plan = await engine.plan({
+    task,
+    analysis: {
+      summary: '把月度收入画成一张柱状图',
+      complexity: 'complex',
+      unitModelPreference: [{ capability: unit.capabilityId, routes: [alternative.route] }],
+    },
+  });
+
+  assert.equal(plan.analysis.complexity, 'complex', "the caller's claim must survive");
+  assert.notEqual(plan.analysis.source, 'local', 'the supplied analysis must not be discarded');
+  assert.equal(
+    plan.units[0].route,
+    alternative.route,
+    'the named route must win over the measured ranking',
+  );
+});

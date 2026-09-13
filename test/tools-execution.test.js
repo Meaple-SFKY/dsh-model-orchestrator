@@ -324,6 +324,28 @@ test('a rejected child route surfaces the adapter error', async (t) => {
   }
 });
 
+test('the delegation tools say why to prefer them over a native subagent call', async (t) => {
+  if (install === undefined) return t.skip('no DSH installation is present');
+  const h = await harness(install);
+  try {
+    const run = h.registered.find((entry) => entry.name === 'orchestrate_run');
+    const dispatch = h.registered.find((entry) => entry.name === 'orchestrate_dispatch');
+    // A captain choosing how to delegate reads exactly these strings. The
+    // observed failure was a captain that spawned four heterogeneous research
+    // units through the native `subagent` tool with no route, so every child
+    // inherited the deployment's one default child model.
+    assert.match(run.description, /differ in kind/, 'run must name the trigger');
+    assert.match(
+      run.description,
+      /single default child model/,
+      'run must name the failure it prevents',
+    );
+    assert.match(dispatch.description, /native subagent call/, 'dispatch must state the preference');
+  } finally {
+    h.cleanup();
+  }
+});
+
 test('configuration round-trips and is validated', async (t) => {
   if (install === undefined) return t.skip('no DSH installation is present');
   const h = await harness(install);
