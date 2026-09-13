@@ -24,6 +24,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - The ambient composer strip is gone. The board replaces it and reads the live tree
   instead of a local mirror.
+- **The board is now a real graph rather than a list.** A styled root task node, a
+  vertical spine, and one card per delegation showing its ordinal, live status, the
+  capability it was matched on, the model it was routed to, its mode, and the durable
+  child id — with an animated activity bar on the running node, a legend, and a pool
+  meter. Presentation is a namespaced stylesheet injected once, built on
+  `--dsw-alias-*` tokens so both themes work. The `"<capability> via <route>"` label the
+  harness records is split so the capability reads as the title and the model as its own
+  chip.
 
 ### Fixed
 
