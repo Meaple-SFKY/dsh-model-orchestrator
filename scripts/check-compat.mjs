@@ -6,7 +6,14 @@
  * loading the plugin into a profile. Use it before installing, before releasing,
  * and in CI.
  *
- * Exit codes: 0 compatible, 1 incompatible, 2 the check itself could not run.
+ * Exit codes: 0 compatible, or nothing to check against; 1 incompatible; 2 the check
+ * itself could not run — which includes `--strict` in a checkout with no DSH to check
+ * against, so a gate can require a real answer.
+ *
+ * A BARE CHECKOUT IS NOT A FAILURE. The check used to report `RESULT: incompatible` and
+ * exit 1 when it could not find a DSH installation, which is the normal state of a
+ * fresh clone and of every CI runner — so the repository's own workflow failed on every
+ * push, for a reason that had nothing to do with compatibility.
  *
  * @module dsh-model-orchestrator/scripts/check-compat
  */
@@ -25,6 +32,9 @@ import {
 } from '../lib/compatibility.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+/** Whether a missing host should fail the run. See the exit codes above. */
+const STRICT = process.argv.includes('--strict') || process.argv.includes('--require-host');
 
 /**
  * Locate the DSH installation visible to this checkout.
@@ -80,6 +90,9 @@ const report = {
   fail(text) {
     this.lines.push(`  FAIL  ${text}`);
   },
+  skip(text) {
+    this.lines.push(`  SKIP  ${text}`);
+  },
   info(text) {
     this.lines.push(`  ...   ${text}`);
   },
@@ -94,6 +107,7 @@ function main() {
   report.lines.push('');
 
   let failed = false;
+let verified = true;
 
   // ---- declared range ------------------------------------------------------
   const range = declaredDshRange(manifest);
@@ -127,8 +141,17 @@ function main() {
     }
   }
   if (host === undefined) {
-    report.fail('could not resolve @deepseek-ai/dsh from this package; is a DSH install present?');
-    failed = true;
+    // Nothing to compare against: no host is a condition of the machine, not a verdict
+    // about this build. Reported plainly, and fatal only when the caller asked for a
+    // real answer with `--strict`.
+    verified = false;
+    // Deliberately NOT `failed`: nothing was compared, so this is not a verdict about
+    // the build. `--strict` only decides whether that unverified state is fatal.
+    if (STRICT) {
+      report.fail('no DSH installation is resolvable from this checkout; --strict requires one');
+    } else {
+      report.skip('no DSH installation is resolvable from this checkout; nothing was verified');
+    }
   } else {
     report.ok(`running DSH: ${host.version}`);
   }
@@ -193,12 +216,21 @@ function main() {
     report.lines.push(
       `RESULT: incompatible. This build must not be activated against DSH ${host?.version ?? '(unknown)'}.`,
     );
+  } else if (!verified) {
+    report.lines.push(
+      'RESULT: not verified — no DSH installation was found from this package. ' +
+        (STRICT
+          ? 'Install one where this runs, or drop --strict to treat that as a skip.'
+          : 'Run this where a harness is installed, or pass --strict to make that fatal.'),
+    );
   } else {
     report.lines.push(`RESULT: compatible with DSH ${host?.version ?? '(unknown)'}.`);
   }
 
   report.print();
-  return failed ? 1 : 0;
+  if (failed) return 1;
+  if (!verified && STRICT) return 2;
+  return 0;
 }
 
 try {

@@ -8,6 +8,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # A runner has no harness, which is exactly the state every host-dependent check
+      # is supposed to skip in. Saying so explicitly makes that path deterministic
+      # instead of accidental — and it means a future test that forgets its skip guard
+      # fails here, on purpose, rather than on a user's machine that has no DSH either.
+      DSH_TEST_HOST: none
     strategy:
       fail-fast: false
       matrix:
@@ -22,4 +28,7 @@ jobs:
       # it is present and skip if it is not, so this matrix stays honest on a runner
       # that has no harness.
       - run: npm test
+      # Non-fatal without a host: this still validates the declared range, the
+      # `dsh.engines.dsh` mirror, the peer declarations and compatibility.json, which
+      # are the parts that need no harness. It used to exit 1 here and fail the job.
       - run: node scripts/check-compat.mjs

@@ -7,6 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { findDshInstall, materialize } from './helpers/host-install.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -342,4 +343,35 @@ test('every method the gate demands is a method the plugin actually calls', () =
       );
     }
   }
+});
+
+test('the standalone check treats a bare checkout as a skip, not an incompatibility', () => {
+  // This is the condition every CI runner is in, and it used to report
+  // `RESULT: incompatible` with exit 1 — so the repository's own workflow failed on
+  // every push for a reason that had nothing to do with compatibility. `DSH_TEST_HOST=none`
+  // models the bare checkout deterministically, so the three outcomes can be pinned here
+  // rather than depending on whether the machine happens to have a harness.
+  const script = join(ROOT, 'scripts', 'check-compat.mjs');
+  const run = (args) =>
+    spawnSync(process.execPath, [script, ...args], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: { ...process.env, DSH_TEST_HOST: 'none' },
+    });
+
+  const relaxed = run([]);
+  assert.equal(relaxed.status, 0, `a bare checkout must not fail:\n${relaxed.stdout}`);
+  assert.match(relaxed.stdout, /RESULT: not verified/);
+  assert.ok(
+    !/RESULT: incompatible/.test(relaxed.stdout),
+    'and must not claim a verdict it never reached',
+  );
+  // The parts that need no host are still checked, which is why the step is worth
+  // keeping in CI at all.
+  assert.match(relaxed.stdout, /declared host range/);
+  assert.match(relaxed.stdout, /compatibility\.json agrees with the manifest/);
+
+  const strict = run(['--strict']);
+  assert.equal(strict.status, 2, 'a gate that requires a real answer must still fail');
+  assert.match(strict.stdout, /--strict requires one/);
 });

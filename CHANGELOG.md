@@ -5,6 +5,28 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] — 2026-09-14
+
+### Fixed
+
+- **The repository's own CI failed on every push, for a reason unrelated to the plugin.**
+  `node scripts/check-compat.mjs` reported `RESULT: incompatible` and exited 1 when it could not
+  find a DSH installation — which is the normal state of a fresh clone and of every CI runner, so
+  the workflow added in 0.2.0 was red from its first run. A missing host is a condition of the
+  machine, not a verdict about this build: the check now reports `not verified` and exits 0, still
+  validating the parts that need no host (the declared range, the `dsh.engines.dsh` mirror, the peer
+  declarations, `compatibility.json`). `--strict` keeps it fatal for a release gate, exiting 2 —
+  "could not run" — rather than 1, which means "incompatible".
+
+### Added
+
+- **`DSH_TEST_HOST=none` models a bare checkout.** Every host-dependent check is supposed to skip
+  when no harness is present, and that is the state CI runs in, but there was no way to produce it
+  locally short of uninstalling DSH. The workflow now sets it, so the path is deterministic and a
+  future check that forgets its skip guard fails in CI rather than on a user's machine. The three
+  outcomes are pinned by a test that spawns the script: bare is a skip, bare with `--strict` is
+  fatal, and a host present is compatible.
+
 ## [0.2.5] — 2026-09-14
 
 ### Fixed
@@ -682,6 +704,7 @@ Initial release. Generic, domain-agnostic Model Orchestrator for DSH `0.1.5-rc.1
 - Only `spawn` and `fork` subagent providers are consulted; any registered provider that
   advertises the `agentOptions` capability works.
 
+[0.2.6]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.2...v0.2.3

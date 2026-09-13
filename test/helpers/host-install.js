@@ -20,6 +20,10 @@ export const ROOT = dirname(dirname(dirname(new URL(import.meta.url).pathname)))
 
 export function findDshInstall() {
   const override = process.env.DSH_TEST_HOST;
+  // `DSH_TEST_HOST=none` models a BARE CHECKOUT — the condition every host-dependent
+  // check is supposed to skip in, and the one CI runs under. Without a way to say "there
+  // is no harness here", that path could only be exercised by uninstalling DSH.
+  if (override === 'none' || override === 'off') return undefined;
   if (typeof override === 'string' && override !== '') return override;
   const candidates = [];
   let directory = ROOT;

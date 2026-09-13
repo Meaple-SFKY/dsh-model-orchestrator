@@ -100,6 +100,12 @@ or in CI, with:
 node scripts/check-compat.mjs
 ```
 
+In a checkout with no DSH to check against — a fresh clone, or any CI runner — it says so and
+exits 0 rather than reporting an incompatibility it never established, and still validates the
+parts that need no host: the declared range, the `dsh.engines.dsh` mirror, the peer
+declarations and `compatibility.json`. Pass `--strict` when a missing harness should be fatal,
+as it would be in a release gate.
+
 **It publishes no service**, so it needs no `isolate` realm, and it only consumes host
 capabilities (`llm`, `subagents`, `tools`, `systemPrompt`).
 

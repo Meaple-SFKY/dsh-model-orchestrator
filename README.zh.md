@@ -80,6 +80,8 @@ dsh plugin --profile <name> add dsh-model-orchestrator
 node scripts/check-compat.mjs
 ```
 
+在一个没有 DSH 可核对的检出里 —— 刚克隆下来，或任何 CI runner —— 它会**如实说明**并以 0 退出，而不是报一个它从未得出的"不兼容"结论；同时仍会校验不需要宿主的那部分：声明的版本范围、`dsh.engines.dsh` 的镜像、peer 声明，以及 `compatibility.json`。若你希望"找不到宿主"就判失败（例如发布闸门），加 `--strict`。
+
 **它不发布任何服务**，因此不需要 `isolate` realm，只消费宿主能力（`llm`、`subagents`、`tools`、`systemPrompt`）。
 
 ## 使用
