@@ -288,10 +288,48 @@ Both are served by the host over three same-origin routes (`state`, `configure`,
 The browser half cannot enumerate models itself — the LLM listing surface is host-only —
 so the panel reads the real pool from the host and never guesses.
 
+## Interruption and restart
+
+The plugin holds no durable task state, so an interruption cannot leave it wedged.
+
+**If you cancel a session mid-orchestration** the tool's signal aborts, which reaches the
+child; the child's result rejects, and that is recorded as a **failed unit** on the run —
+never a hang, never an unhandled rejection, and never a silent gap. Every spawned child is
+disposed exactly once on every path.
+
+**If the process is killed** (`kill -9`, a crash, a power cut), nothing in memory mattered:
+
+| On restart | Behaviour |
+|---|---|
+| Preferences, mode, Guided areas | Restored from `$DSH_HOME/orchestrator/state.json` |
+| Learned capability descriptors | Restored, and usable again |
+| Per-route calibrations | Restored; entries whose model left the pool are pruned |
+| Model pool | **Rediscovered** from the live registry — never restored, so it cannot be stale |
+| Route registration | Re-mounted on activation |
+| A truncated or corrupt state file | Falls back to defaults with a reported reason, and the next write repairs it |
+| A state file from a NEWER plugin version | Refused without overwriting, so a downgrade cannot corrupt it |
+
+Writes are atomic (temp file, then rename), so a kill during a write leaves either the old
+file or the new one — there is no partial state to recover from. `test/lifecycle.test.js`
+pins all of the above.
+
+### Known native caveat
+
+One observation from testing, reported for completeness rather than as a plugin defect: in
+one run a `kill -9` of the `dsh --profile headless` process left a surviving `dsh` child
+(adopted by init, still holding a network socket). I could **not** reproduce it in two later
+controlled attempts — one without any subagent, one with an orchestrator-spawned subagent —
+and in-process subagents cannot outlive their parent, so that child was not a delegated
+agent. If you ever see a stray `dsh` after killing a session, check for it with:
+
+```sh
+pgrep -fa 'dsh --profile'
+```
+
 ## Development
 
 ```sh
-node --test "test/*.test.js"   # 137 tests, no host required
+node --test "test/*.test.js"   # 146 tests, no host required
 node scripts/check-compat.mjs  # host compatibility report
 ```
 

@@ -7,6 +7,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Activation crashed in a real deployment.** A Cordis plugin context is a proxy:
+  reading a name the composing plugin does not inject THROWS rather than returning
+  `undefined`. The route installer used `ctx.webServer ?? ctx.get('webServer')`, and `??`
+  evaluates its right-hand side whenever the left is nullish, so the boot failed with
+  `cannot get property "webServer" without inject`. The service is now acquired with
+  `ctx.inject(['webServer'], …)` unconditionally, and handed to the router as an explicit
+  argument. Found by booting the plugin inside the deployment's own composition.
+
+### Added
+
+- `test/lifecycle.test.js` and `test/helpers/fake-context.js`. The lifecycle suite pins
+  interruption behaviour: a cancelled delegation becomes a recorded failure and is still
+  disposed, an infrastructure rejection is contained, `abortAll` is idempotent, a cold
+  restart resumes purely from the state file, a truncated state file is tolerated and
+  repaired, and a newer schema is refused. The fake context now reproduces the host's
+  throwing service resolution **and** exposes granted services as context properties —
+  the two contracts whose absence hid the activation bug.
+
+
 ### Added
 
 - **Orchestrator board** — a Conversation view beside `Chat` and `Trajectory` showing the
