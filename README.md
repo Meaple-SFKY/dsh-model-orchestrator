@@ -191,8 +191,55 @@ The same preference is settable from a tool surface, for an agent asked to confi
 orchestrate_configure { reasoningEffort: { "commandcode/xai/grok-4.6": "high" } }
 ```
 
-## How matching works
+### Capability assignments — your standing division of labour
 
+If you want a specific division of labour rather than per-task judgement — *vision to one
+model, maths to another, architecture to the expensive one but implementation to the cheap
+one* — set it once in **Settings → Model Orchestrator → Capability assignments**, or from a
+tool:
+
+```
+orchestrate_configure { capabilityAssignments: {
+  "multimodal.vision":       { models: ["gemini-3.8-flash"] },
+  "reasoning.mathematics":   { models: ["Qwen 3.8 Max 0902"] },
+  "software.architecture":   { models: ["gpt-5.6-sol"] },
+  "software.implementation": { models: ["deepseek-v4.1-flash"] },
+  "web.information":         { models: ["grok-4.6"] },
+  "long.context":            { models: ["Kimi K3"] }
+} }
+```
+
+An entry is keyed by a **capability id or a whole capability group**, and holds an **ordered
+list of model identities**. Models are stored as identities, not routes, so the table
+outlives the pool:
+
+| The pool changes | What absorbs it |
+|---|---|
+| The model moves to another provider, or its route is respelled | Identity matching — the row above names `gemini-3.8-flash`, not a route |
+| A new version ships (`5.6 → 5.7`) | The per-entry **follow the family** switch, off by default: a version bump is usually the same model, but not always |
+| The model leaves the pool | The entry reports itself **unresolved**; routing falls through to the next entry, then the measured ranking |
+| A model appears that no entry mentions | Reported as an **unassigned live route** — a decision you get to make, not one the table makes silently |
+
+Two things this deliberately is not:
+
+- **It is not a lock.** The table supplies the preference order; the matcher still reorders
+  eligible candidates and still enforces hard requirements and the deployment's route policy.
+  A table entry can never revive a route those excluded.
+- **It is not the last word on a unit.** The calling model can still beat it for one unit with
+  `analysis.unitModelPreference`, because that is the more specific statement about that unit.
+  The full ladder is: the calling model's per-unit choice → this table → the calling model's
+  task-level preference → the measured ranking.
+
+Capabilities in one cluster are split into separate units when their assignments differ. That
+is what makes "architecture to GPT, implementation to DeepSeek" real: both live in the
+`software` cluster, and without the split they would merge into one unit on one model and the
+table would silently do nothing.
+
+The plugin still names no model anywhere in its selection logic — the table is yours. Identity
+matching answers only *"is this still the same model"*; it never decides which model is better
+at what.
+
+## How matching works
 ```
 score(model, task) = geometric_mean( satisfaction(requirementᵢ, model) ^ weightᵢ ) × confidence
                      − cost_shaping
@@ -527,7 +574,7 @@ pgrep -fa 'dsh --profile'
 ## Development
 
 ```sh
-node --test "test/*.test.js"   # 200 tests, no host required
+node --test "test/*.test.js"   # 256 tests, no host required
 node scripts/check-compat.mjs  # host compatibility report
 ```
 
@@ -558,6 +605,8 @@ lib/
   routes.js         host control routes for the browser panel
   commands.js       the /model-orchestrator human command (host-free, so it is testable)
   reasoning-effort.js  per-route reasoning level: validation and merge, shared by both configure surfaces
+  model-identity.js    model identity and family keys: which live route a stored intent means
+  assignments.js       the standing division of labour: normalise, resolve, report drift
   agent-tree.js     subagent relationship tree for the board (pure, testable)
   route-policy.js   narrows discovery to the routes the deployment offers
   prompt.js         the routing-policy system prompt section

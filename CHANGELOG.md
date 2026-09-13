@@ -9,6 +9,40 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Capability assignments: a standing division of labour, set once and applied to every run.**
+  Until now the only way to say "architecture to one model, implementation to another" was per
+  task, through the calling model's own analysis — which is the gap between this plugin and the
+  intent it was built for. An entry is keyed by a capability id or a whole group and holds an
+  ordered list of model **identities**, so the table outlives the pool: a provider move or a
+  respelled route is absorbed by identity matching, a version bump by an opt-in *follow the
+  family* switch, and anything that stops resolving is reported rather than silently ignored. A
+  pool route no entry mentions is reported as unassigned, so a new model is a decision the user
+  gets to make. The resolution ladder is: the calling model's per-unit choice, then this table,
+  then the calling model's task-level preference, then the measured ranking — the table outranks
+  the task-level preference on purpose, so a chatty caller cannot quietly defeat a policy the
+  user set, while the more specific per-unit statement still wins.
+- **Same-cluster capabilities are split into separate units when their assignments differ.**
+  Architecture and implementation share the `software` cluster; without the split they merge into
+  one unit on one model and the table would do nothing. An entry that resolves to nothing does not
+  shadow a group entry, so a stale specific row falls through instead of vetoing the general one.
+- **The resolution is reported everywhere it matters**: on every plan and run, in
+  `orchestrate_status`, and in the panel — what each entry points at right now, which targets
+  match nothing, and which live routes no entry mentions.
+- A **Capability assignments** panel section, offering capabilities and models from the live
+  vocabulary and pool rather than a free-text field. Identity matching is exact-on-normalised by
+  design — the prefix rule that would catch a truncated spelling is the same one that would route
+  one model's work to its vision variant — so the way to be right here is to pick, not to type.
+
+### Changed
+
+- **The model-identity guard now checks code, not prose.** Its own name said "outside
+  documentation" while it scanned raw text, so it would have failed this release for explaining
+  itself with real model names. It now strips comments first and covers the two new logic modules.
+  It also caught a real violation while being written: an *example model name inside a
+  model-facing tool description*, which is not documentation to a model — it is an instruction.
+
+### Added
+
 - **Model identity and assignment resolution** (`lib/model-identity.js`). The pool churns —
   models are added, renamed, moved behind another provider, and bumped to a new version — so a
   capability→model assignment cannot be stored against a route without rotting silently. It is

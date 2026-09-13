@@ -669,3 +669,70 @@ test('the panel can set a per-route reasoning level, and an invalid one is refus
     d.cleanup();
   }
 });
+
+test('the panel can set a capability assignment, and the state reports how it resolves', async () => {
+  const d = deps();
+  try {
+    Object.defineProperty(d.pool, 'models', {
+      value: () => [
+        {
+          route: 'p1/gemini-3.8-flash',
+          provider: 'p1',
+          model: 'gemini-3.8-flash',
+          name: 'Gemini 3.8 Flash',
+          facts: { efforts: [] },
+          derived: { tier: 'deep' },
+        },
+      ],
+      configurable: true,
+    });
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const route = server.routes.get(`${ROUTE_PREFIX}/configure`);
+
+    // A model that is not in the pool right now is legal (the pool churns) but is
+    // reported at the moment it is written.
+    const written = exchange({
+      method: 'POST',
+      body: {
+        capabilityAssignments: {
+          'multimodal.vision': 'gemini-3.8-flash',
+          'reasoning.mathematics': 'claude-opus-9',
+          'not.a.capability': 'gemini-3.8-flash',
+        },
+      },
+    });
+    await route.handler(written.req, written.res);
+    assert.deepEqual(written.captured.body.applied, ['capabilityAssignments']);
+    assert.match(written.captured.body.rejected.join(' '), /not\.a\.capability: unknown capability or group/);
+    assert.deepEqual(written.captured.body.assignmentsUnresolved, [
+      { key: 'reasoning.mathematics', target: 'claude-opus-9' },
+    ]);
+    assert.equal(written.captured.body.assignmentsResolved.length, 1);
+
+    const stored = d.store.snapshot().preferences.capabilityAssignments;
+    assert.deepEqual(Object.keys(stored).sort(), ['multimodal.vision', 'reasoning.mathematics']);
+    assert.equal('not.a.capability' in stored, false, 'a refused key must not be stored');
+
+    // The state document the panel renders carries the resolution and the pool.
+    const assignments = written.captured.body.state.assignments;
+    assert.equal(assignments.count, 2);
+    assert.deepEqual(assignments.entries[0].routes, ['p1/gemini-3.8-flash']);
+    assert.deepEqual(assignments.unresolved, [{ key: 'reasoning.mathematics', target: 'claude-opus-9' }]);
+    assert.ok(Array.isArray(written.captured.body.state.assignmentKeys));
+    assert.ok(
+      written.captured.body.state.assignmentKeys.some((entry) => entry.key === 'multimodal.vision'),
+      'the panel needs the vocabulary it may assign',
+    );
+
+    // And clearing one entry leaves the other alone.
+    const cleared = exchange({ method: 'POST', body: { capabilityAssignments: { 'multimodal.vision': null } } });
+    await route.handler(cleared.req, cleared.res);
+    assert.deepEqual(Object.keys(d.store.snapshot().preferences.capabilityAssignments), [
+      'reasoning.mathematics',
+    ]);
+  } finally {
+    d.cleanup();
+  }
+});

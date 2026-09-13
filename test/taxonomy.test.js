@@ -62,14 +62,28 @@ test('the taxonomy names no model, provider, or vendor', () => {
 
 test('no source module hardcodes a model route outside documentation', () => {
   // The selection logic must read the live pool. This asserts the shipped logic
-  // modules contain no concrete model id. Imports of the host's own
+  // modules contain no concrete model id in CODE — prose is allowed, since the
+  // modules explain themselves with real examples, and a guard that forbade those
+  // would trade a real explanation for nothing. Imports of the host's own
   // `@deepseek-ai/*` packages are legitimate and are stripped first.
   const modelIds = ['deepseek-v4', 'deepseek-flash', 'gpt-4', 'gpt-5', 'claude-', 'gemini-', 'grok-', 'commandcode'];
-  for (const file of ['taxonomy.js', 'matching.js', 'discovery.js', 'engine.js', 'tools.js']) {
+  for (const file of [
+    'taxonomy.js',
+    'matching.js',
+    'discovery.js',
+    'engine.js',
+    'tools.js',
+    'assignments.js',
+    'model-identity.js',
+  ]) {
     const raw = readFileSync(join(ROOT, 'lib', file), 'utf8');
-    const text = raw.replace(/@deepseek-ai\//g, '@host/').toLowerCase();
+    const code = raw
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
+      .replace(/@deepseek-ai\//g, '@host/')
+      .toLowerCase();
     for (const name of modelIds) {
-      assert.ok(!text.includes(name), `lib/${file} hardcodes the model id "${name}"`);
+      assert.ok(!code.includes(name), `lib/${file} hardcodes the model id "${name}" in code`);
     }
   }
 });

@@ -576,3 +576,167 @@ test('a configured effort applies to dispatch too, and is reported', async () =>
     cleanup();
   }
 });
+
+test('a standing assignment splits one cluster so architecture and implementation differ', async () => {
+  // The intent this feature exists for: "architecture to the expensive model,
+  // implementation to the cheap one". Both capabilities live in the `software`
+  // cluster, so without the split they merge into ONE unit on ONE model and the
+  // table silently does nothing.
+  const profiles = [
+    profileOf('p1', 'arch', { description: 'system design and architecture tradeoffs' }),
+    profileOf('p1', 'coder', { description: 'coding implementation' }),
+  ];
+  const { engine, host, cleanup } = makeEngine({
+    profiles,
+    preferences: {
+      capabilityAssignments: {
+        'software.architecture': { models: ['arch'], family: false },
+        'software.implementation': { models: ['coder'], family: false },
+      },
+    },
+  });
+  try {
+    const plan = await engine.plan({
+      task: 'Implement the parser.',
+      analysis: {
+        summary: 'design then implement',
+        complexity: 'specialist',
+        requirements: [
+          { capability: 'software.architecture', weight: 0.9 },
+          { capability: 'software.implementation', weight: 0.9 },
+        ],
+      },
+    });
+    assert.equal(plan.units.length, 2, 'the two capabilities must not share a unit');
+    const byCapability = Object.fromEntries(plan.units.map((unit) => [unit.capabilityId, unit.route]));
+    assert.equal(byCapability['software.architecture'], 'p1/arch');
+    assert.equal(byCapability['software.implementation'], 'p1/coder');
+    assert.equal(plan.assignments.count, 2);
+    assert.deepEqual(plan.assignments.unresolved, []);
+    // And the reason says the table decided, not the ranking.
+    assert.match(
+      plan.units.find((unit) => unit.capabilityId === 'software.architecture').routeReason,
+      /^assigned: software\.architecture/,
+    );
+
+    await engine.run({
+      task: 'Implement the parser.',
+      captain: CAPTAIN,
+      analysis: {
+        summary: 'design then implement',
+        complexity: 'specialist',
+        requirements: [
+          { capability: 'software.architecture', weight: 0.9 },
+          { capability: 'software.implementation', weight: 0.9 },
+        ],
+      },
+    });
+    const routed = Object.fromEntries(host.calls.map((call) => [call.request.agentOptions.model, true]));
+    assert.deepEqual(Object.keys(routed).sort(), ['arch', 'coder']);
+  } finally {
+    cleanup();
+  }
+});
+
+test('one group entry keeps its cluster together', async () => {
+  const profiles = [
+    profileOf('p1', 'arch', { description: 'system design and architecture tradeoffs' }),
+    profileOf('p1', 'coder', { description: 'coding implementation' }),
+  ];
+  const { engine, cleanup } = makeEngine({
+    profiles,
+    preferences: { capabilityAssignments: { software: { models: ['coder'], family: false } } },
+  });
+  try {
+    const plan = await engine.plan({
+      task: 'Implement the parser.',
+      analysis: {
+        summary: 'design then implement',
+        complexity: 'specialist',
+        requirements: [
+          { capability: 'software.architecture', weight: 0.9 },
+          { capability: 'software.implementation', weight: 0.9 },
+        ],
+      },
+    });
+    assert.equal(plan.units.length, 1, 'a group entry is one preference, so one unit');
+    assert.equal(plan.units[0].route, 'p1/coder');
+  } finally {
+    cleanup();
+  }
+});
+
+test('an assignment through a different spelling survives a provider move', async () => {
+  const profiles = [
+    profileOf('p2', 'gemini-3.8-flash', { description: 'image understanding', modalities: ['text', 'image'] }),
+  ];
+  const { engine, cleanup } = makeEngine({
+    profiles,
+    preferences: {
+      // Written as a bare name, resolved against a route that did not exist when
+      // it was written.
+      capabilityAssignments: { 'multimodal.vision': { models: ['Gemini 3.8 Flash'], family: false } },
+    },
+  });
+  try {
+    const plan = await engine.plan({
+      task: 'Read the attached screenshot and describe its layout.',
+      analysis: {
+        summary: 'read a screenshot',
+        complexity: 'specialist',
+        requirements: [{ capability: 'multimodal.vision', weight: 1 }],
+      },
+    });
+    assert.equal(plan.units[0].route, 'p2/gemini-3.8-flash');
+    assert.deepEqual(plan.assignments.unresolved, []);
+  } finally {
+    cleanup();
+  }
+});
+
+test('an assignment naming a model that is gone is reported, not silently ignored', async () => {
+  const profiles = [profileOf('p1', 'coder', { description: 'coding implementation' })];
+  const { engine, cleanup } = makeEngine({
+    profiles,
+    preferences: {
+      capabilityAssignments: { 'software.implementation': { models: ['claude-opus-9'], family: false } },
+    },
+  });
+  try {
+    const plan = await engine.plan({ task: 'Implement the parser.' });
+    assert.deepEqual(plan.assignments.unresolved, [
+      { key: 'software.implementation', target: 'claude-opus-9' },
+    ]);
+    // It still routes — through the measured ranking — and reports that the table
+    // had nothing to say.
+    assert.ok(plan.units.length >= 1);
+    assert.doesNotMatch(plan.units[0].routeReason ?? '', /^assigned: /);
+  } finally {
+    cleanup();
+  }
+});
+
+test("the calling model's own per-unit preference still beats the table", async () => {
+  const profiles = [
+    profileOf('p1', 'table-pick', { description: 'coding implementation' }),
+    profileOf('p1', 'caller-pick', { description: 'coding implementation' }),
+  ];
+  const { engine, cleanup } = makeEngine({
+    profiles,
+    preferences: { capabilityAssignments: { 'software.implementation': { models: ['table-pick'], family: false } } },
+  });
+  try {
+    const plan = await engine.plan({
+      task: 'Implement the parser.',
+      analysis: {
+        summary: 'implement',
+        complexity: 'specialist',
+        requirements: [{ capability: 'software.implementation', weight: 1 }],
+        unitModelPreference: [{ capability: 'software.implementation', routes: ['p1/caller-pick'] }],
+      },
+    });
+    assert.equal(plan.units[0].route, 'p1/caller-pick');
+  } finally {
+    cleanup();
+  }
+});

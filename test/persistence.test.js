@@ -247,3 +247,24 @@ test('malformed preference entries are dropped without taking the block with the
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('capability assignments survive a write and a reload', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'orch-persist-assign-'));
+  try {
+    const store = new OrchestratorStore(directory);
+    store.update((state) => {
+      state.preferences.capabilityAssignments = {
+        'multimodal.vision': { models: ['gemini-3.8-flash'], family: true },
+        software: 'deepseek-v4.1-flash',
+        broken: { models: [] },
+      };
+    });
+    const preferences = new OrchestratorStore(directory).snapshot().preferences;
+    assert.deepEqual(preferences.capabilityAssignments, {
+      'multimodal.vision': { models: ['gemini-3.8-flash'], family: true },
+      software: { models: ['deepseek-v4.1-flash'], family: false },
+    });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
