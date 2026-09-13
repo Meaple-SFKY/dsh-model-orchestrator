@@ -7,6 +7,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The model pool now follows the deployment's subagent route policy.** Discovery reads the
+  LLM registry, which advertises every model every adapter has — so a profile with two
+  providers mounted showed the same underlying model twice and listed routes the user never
+  enabled. The pool is now narrowed by `subagentModelSelection.current()` (the exact routes
+  the Settings page offers for subagent selection) and then by the user's own
+  `allowedRoutes` / `deniedRoutes` preferences. The policy applies only when the service
+  exists, is enabled, and names a route; an absent or empty policy leaves discovery intact
+  rather than filtering everything out. Routes are matched exactly, so the same model id
+  under two providers is never silently collapsed. `lib/route-policy.js`, ten tests, and a
+  panel line that says which layer narrowed the pool.
+
+
 ### Fixed
 
 - **Activation crashed in a real deployment.** A Cordis plugin context is a proxy:

@@ -105,6 +105,40 @@ You can also steer it explicitly:
 | `orchestrate_configure` | Change preferences. |
 | `orchestrate_status` | Current mode, pool, mappings, and run history. |
 
+## Which models are in the pool
+
+Discovery reads the LLM registry, which lists every model every registered adapter
+advertises. That is **not** the same as the set a deployment intends you to use: a profile
+with two providers mounted commonly advertises the same underlying model twice, and a
+provider may advertise more than the user enabled.
+
+So the pool is narrowed by two layers, in order:
+
+1. **The deployment's subagent route policy** — `subagentModelSelection.current()`, the
+   same exact routes the Settings page shows for subagent model selection. Since every
+   model this plugin runs is a subagent route, this is the authoritative answer.
+2. **Your own route preferences** — `orchestrate_configure`'s `allowedRoutes` /
+   `deniedRoutes`, applied on top.
+
+Rules that keep this safe:
+
+- The policy constrains the pool **only** when the service exists, is enabled, and names at
+  least one route. An absent, disabled, or empty policy means the deployment expressed no
+  preference, and discovery stands — filtering to nothing would silently disable routing.
+- Routes are matched **exactly** as `provider/model`. Two providers exposing the same model
+  id are different models and are both kept unless a policy excludes one; ids are never
+  deduplicated, because that would discard a legitimate route.
+- When the policy would leave nothing routable, that is reported as a problem rather than
+  shown as an empty pool.
+
+The panel says which layer narrowed the pool, so a smaller list reads as a decision rather
+than a fault:
+
+```
+Showing the 7 route(s) this deployment offers for subagents;
+4 advertised route(s) are not selectable.
+```
+
 ## How matching works
 
 ```
@@ -329,7 +363,7 @@ pgrep -fa 'dsh --profile'
 ## Development
 
 ```sh
-node --test "test/*.test.js"   # 146 tests, no host required
+node --test "test/*.test.js"   # 156 tests, no host required
 node scripts/check-compat.mjs  # host compatibility report
 ```
 
@@ -359,6 +393,7 @@ lib/
   locales.js        zh/en dictionaries for the UI (mirrored into the client bundle)
   routes.js         host control routes for the browser panel
   agent-tree.js     subagent relationship tree for the board (pure, testable)
+  route-policy.js   narrows discovery to the routes the deployment offers
   prompt.js         the routing-policy system prompt section
   client.js         client bundle: settings page + session strip
   home.js, util.js  harness-home and value helpers
