@@ -340,3 +340,23 @@ test('the state document exposes routing capacity but no task state', async () =
     d.cleanup();
   }
 });
+
+test('each model carries a pool-relative rating and its declared domains', async () => {
+  const d = deps();
+  try {
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const ok = exchange();
+    await server.routes.get(`${ROUTE_PREFIX}/state`).handler(ok.req, ok.res);
+    // No models in this fixture pool, so the shape is asserted on the container.
+    assert.ok(Array.isArray(ok.captured.body.pool.models));
+    // The state document must not carry a cost field: the panel shows no price.
+    const serialized = JSON.stringify(ok.captured.body).toLowerCase();
+    for (const forbidden of ['costindex', 'costlow', 'costmed', '"cost"']) {
+      assert.ok(!serialized.includes(forbidden), `the state document must not expose ${forbidden}`);
+    }
+  } finally {
+    d.cleanup();
+  }
+});
