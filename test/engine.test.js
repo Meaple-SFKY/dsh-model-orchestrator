@@ -451,3 +451,32 @@ test('teardown aborts in-flight delegation instead of orphaning it', async () =>
     harness.cleanup();
   }
 });
+
+test('a multi-unit plan chains its stages so each sees the previous findings', async () => {
+  // Regression: a task explicitly described as a sequence was routed to several
+  // specialists that all ran in parallel with `dependsOn: []`, so the review and
+  // the summary never saw the research output. A pipeline must serialise.
+  const profiles = [profileOf('p1', 'general', { description: 'careful analysis', efforts: ['high'] })];
+  const { engine, host, cleanup } = makeEngine({ profiles });
+  try {
+    const run = await engine.run({
+      task: 'Research the topic, then review the findings, then summarize the result.',
+      captain: CAPTAIN,
+    });
+    // Every unit after the first must declare a dependency.
+    const chained = run.results.filter((entry) => (entry.dependsOn ?? []).length > 0);
+    assert.ok(run.results.length > 1, `expected several units, got ${run.results.length}`);
+    assert.equal(
+      chained.length,
+      run.results.length - 1,
+      'every stage after the first must depend on its predecessor',
+    );
+    // And the later stages must actually receive the earlier preview as context.
+    const withContext = host.calls.filter((call) =>
+      call.request.prompt.some((block) => /Shared findings so far/.test(block.text ?? '')),
+    );
+    assert.ok(withContext.length > 0, 'a dependent stage must receive the prior findings');
+  } finally {
+    cleanup();
+  }
+});
