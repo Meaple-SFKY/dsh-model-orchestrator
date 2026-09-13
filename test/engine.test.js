@@ -740,3 +740,48 @@ test("the calling model's own per-unit preference still beats the table", async 
     cleanup();
   }
 });
+
+test('a hand-set level is sent for a provider that reasons without listing levels', async () => {
+  // The route advertises nothing to select, so by default it is used as-is. An
+  // operator who says "this provider does accept high" is obeyed — the alternative
+  // is silently ignoring what they asked for.
+  const profile = buildProfile(
+    {
+      modalities: ['text'],
+      contextWindow: 200000,
+      defaultMaxTokens: 64000,
+      name: 'auto',
+      description: 'coding implementation',
+    },
+    'p1',
+    'auto',
+  );
+  // The pool row itself reports the state; the profile facts carry it too.
+  profile.facts.reasoningMode = 'automatic';
+  const { engine, host, cleanup } = makeEngine({
+    profiles: [profile],
+    preferences: { reasoningEffort: { 'p1/auto': 'high' } },
+  });
+  try {
+    await engine.run({ task: 'Implement the parser.', captain: CAPTAIN });
+    assert.equal(host.calls[0].request.agentOptions.reasoningEffort, 'high');
+  } finally {
+    cleanup();
+  }
+});
+
+test('a stale level on a route that DOES list levels is still ignored', async () => {
+  // The strict rule survives where it belongs: a route that advertises a list and
+  // no longer offers the stored id is reporting a stale entry, not a decision.
+  const profiles = [profileOf('p1', 'm1', { description: 'coding implementation', efforts: ['low', 'high'] })];
+  const { engine, host, cleanup } = makeEngine({
+    profiles,
+    preferences: { reasoningEffort: { 'p1/m1': 'max' } },
+  });
+  try {
+    await engine.run({ task: 'Implement the parser.', captain: CAPTAIN });
+    assert.equal(host.calls[0].request.agentOptions.reasoningEffort, undefined);
+  } finally {
+    cleanup();
+  }
+});

@@ -219,14 +219,10 @@ test('version and release identifiers are never translated', () => {
 test('identifiers that name real strings are not translated anywhere', () => {
   // These keys carry values that also appear verbatim in the tool output, so a
   // translation would make the panel disagree with what the agent reports.
-  const dataKeys = [
-    'pool.tierDeep',
-    'pool.tierBalanced',
-    'pool.tierFast',
-    'pool.contextValue',
-    'pool.noValue',
-    'preview.poolCount',
-  ]
+  // The model-tier names used to be here. The pool no longer shows a tier column
+  // — it is internal vocabulary, and the columns beside it (context, cost) are the
+  // measured inputs it summarised — so those keys are gone rather than dead.
+  const dataKeys = ['pool.contextValue', 'pool.noValue', 'preview.poolCount']
   for (const key of dataKeys) {
     assert.ok(key in en && key in zh, `${key} must exist in both locales`)
   }

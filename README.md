@@ -175,6 +175,15 @@ shows which one a route is in:
 | `automatic` | The model reasons and the provider drives the depth | **automatic** — no selector, because there is nothing to select |
 | `none` | No reasoning is reported | A dash |
 
+A route in the `automatic` state is used **as-is** by default: no level is sent, so the provider
+does exactly what it would have done anyway. If you know your provider accepts a level it does not
+list, you can set one anyway — `orchestrate_configure { reasoningEffort: { "<route>": "high" } }` —
+and it is accepted, sent, and marked **manual** in the pool. Nothing can verify it, so a level the
+provider rejects fails that delegation with the adapter's own error; that is the trade for not
+silently ignoring what you asked for. A route that reports no reasoning at all cannot be given a
+level, and a route that lists levels keeps the strict rule: an id that is no longer on its list is
+a stale entry and is ignored.
+
 The distinction matters in routing, not only in the panel. A capability that requires reasoning
 accepts both `adjustable` and `automatic`; a requirement that names a level (for example "must
 expose high") needs `adjustable`, since a level that cannot be selected cannot satisfy it. Setting
@@ -207,6 +216,19 @@ The same preference is settable from a tool surface, for an agent asked to confi
 ```
 orchestrate_configure { reasoningEffort: { "commandcode/xai/grok-4.6": "high" } }
 ```
+
+### The model pool's columns
+
+| Column | Where it comes from |
+|---|---|
+| **Route** | The deployment's own `provider/model` string |
+| **Public model** | Sync. Blank until a sync, and explicitly *unconfirmed* when the researcher could not tie the route to a published model |
+| **Cost ($/M tok)** | Sync: published list prices per million tokens, with a bar relative to the dearest route **in this pool** — a price alone does not answer "is this expensive" |
+| **Context**, **Image** | Measured by the host |
+| **Reasoning** | A selector where the provider lists levels, `automatic` where it reasons without listing any, a dash where none is reported |
+
+The model **tier** column is gone: `deep` / `balanced` / `fast` is this plugin's own vocabulary, and
+the columns beside it — context, cost — are the measured inputs it was summarising.
 
 ### Capability assignments — your standing division of labour
 
@@ -437,6 +459,12 @@ Both follow the harness language setting: every user-facing string lives in the 
 client bundle), covering both shipped locales. Strings a **model** reads — tool
 descriptions, parameter schemas, the routing prompt section, personas — are deliberately
 English and do not follow the UI language.
+
+Capability names follow the same split: the taxonomy's labels are model-facing and stay English,
+because they travel into child prompts and delegation labels, while the panel translates them
+through its own `capability.label.<id>` entries — so 「能力领域」 reads in Chinese and the agent
+still receives `Testing and verification`. A learned capability with no entry yet falls back to its
+taxonomy label.
 
 Terminology policy: generic and technical terms stay untranslated. `host` / `requires`
 version labels, `provider`, `Route`, deployment ids such as `workflowEngine`, model and

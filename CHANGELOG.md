@@ -9,6 +9,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Capability names are bilingual in the panel.** The taxonomy's labels stay English because a
+  model reads them — they travel into child prompts and delegation labels — while the panel
+  translates them through its own `capability.label.<id>` entries. 「能力领域」 and the assignment
+  picker now read in Chinese while the agent still receives `Testing and verification`; a learned
+  capability with no entry yet falls back to its taxonomy label.
+
+### Changed
+
+- **The cost unit is abbreviated and the tier column is gone.** `$/M tok` in the header, so the cell
+  is just the two figures. The `Tier` column went because `deep` / `balanced` / `fast` is this
+  plugin's own vocabulary rather than anything the host reports, and the columns beside it —
+  context and cost — are the measured inputs it was summarising. The classification still drives
+  the cost proxy; only the display changed.
+- **A provider that reasons without listing levels can be given one by hand.** Such a route is used
+  as-is by default, which is the honest answer since there is nothing to select. An operator who
+  knows their provider accepts an effort can now set one: it is accepted, sent, and marked
+  **manual** in the pool, because nothing can verify it — a rejected level fails that delegation
+  with the adapter's own error. A route reporting no reasoning at all still cannot be given a
+  level, and a route that lists levels keeps the strict rule that an id no longer on the list is a
+  stale entry to be ignored rather than sent.
+
+### Added
+
 - **The model pool shows the public model and its published cost as columns.** The researched
   name, vendor, per-million-token prices and a bar relative to the dearest route in the same pool
   — because a price alone does not answer "is this expensive", and the only meaningful scale is

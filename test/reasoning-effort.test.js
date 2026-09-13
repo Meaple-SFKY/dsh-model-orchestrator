@@ -34,11 +34,13 @@ test('a route outside the live pool is rejected rather than stored inert', () =>
   assert.match(rejected[0], /not in the live model pool/);
 });
 
-test('a route that advertises no levels cannot be given one', () => {
-  const live = pool({ 'p1/text-only': { efforts: [] } });
+test('a route that reports no reasoning at all cannot be given a level', () => {
+  // Distinct from the manual-override case above: there is nothing for a level to
+  // mean here, so it is refused at the boundary rather than sent and failed later.
+  const live = pool({ 'p1/text-only': { reasoningMode: 'none' } });
   const { patch, rejected } = effortPatch({ 'p1/text-only': 'high' }, live);
   assert.deepEqual(patch, []);
-  assert.match(rejected[0], /advertises no reasoning efforts/);
+  assert.match(rejected[0], /reports no reasoning, so it cannot be given a level/);
 });
 
 test('null and an empty string clear the preference', () => {
@@ -73,4 +75,26 @@ test('merging touches only the routes in the patch', () => {
   const cleared = mergeEffortPatch(next, [{ route: 'p1/a', effort: undefined }]);
   assert.equal('p1/a' in cleared, false, 'a cleared route goes back to the model default');
   assert.deepEqual(mergeEffortPatch(undefined, [{ route: 'p1/a', effort: 'low' }]), { 'p1/a': 'low' });
+});
+
+test('a level may be set by hand for a provider that reasons without listing levels', () => {
+  // There is nothing to select, so the route is used as-is by default. But an
+  // operator who knows their provider accepts an effort can say so — accepted, and
+  // MARKED, because nothing can check it and a wrong value fails at dispatch.
+  const live = pool({ 'p1/auto': { reasoningMode: 'automatic' }, 'p1/none': { reasoningMode: 'none' } });
+
+  const manual = effortPatch({ 'p1/auto': 'high' }, live);
+  assert.deepEqual(manual.patch, [{ route: 'p1/auto', effort: 'high', unverified: true }]);
+  assert.deepEqual(manual.rejected, []);
+
+  const impossible = effortPatch({ 'p1/none': 'high' }, live);
+  assert.deepEqual(impossible.patch, []);
+  assert.match(impossible.rejected[0], /reports no reasoning, so it cannot be given a level/);
+
+  // And a route that DOES list levels keeps the strict rule: an unlisted one is a
+  // mistake, not a decision.
+  const listed = pool({ 'p1/listed': { efforts: ['low', 'high'], reasoningMode: 'adjustable' } });
+  const wrong = effortPatch({ 'p1/listed': 'max' }, listed);
+  assert.deepEqual(wrong.patch, []);
+  assert.match(wrong.rejected[0], /not one of low, high/);
 });
