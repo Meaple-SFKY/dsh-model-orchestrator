@@ -7,6 +7,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`analysis.unitModelPreference` routes units individually.** A whole-task preference is
+  too coarse for a plan that holds a vision unit and a maths unit. Each entry addresses a unit
+  by exact capability id or by cluster, with the most specific target winning for the unit it
+  names; units that match nothing keep the task-level preference or the measured ranking.
+  Verified end to end against the live routes.
+
+### Fixed
+
+- **A model preference was being re-sorted away.** Candidates the caller named were still
+  ordered by measured score, so a preference only took effect when the preferred model
+  happened to score highest. The caller's relative order is now preserved among the
+  candidates it named, and only the rest keep the measured ordering.
+- **A caller-named capability did not inherit that capability's hard requirements.** Naming
+  `multimodal.screenshot` meant "must read an image", but the descriptor's modality floor was
+  only applied on the local analysis path — so a requirement was merely a preference, and a
+  per-unit preference could place a text-only route on work it cannot do. Caller entries now
+  inherit the descriptor's required modality and floors, and an ineligible name falls through
+  to the caller's next name instead of being used.
+
+
 ### Fixed
 
 - **A model's complexity judgement was being overruled.** The plugin took the maximum of the

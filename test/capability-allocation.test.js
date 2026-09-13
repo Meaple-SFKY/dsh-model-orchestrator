@@ -12,6 +12,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as matching from '../lib/matching.js';
 import { Taxonomy } from '../lib/taxonomy.js';
 import { analysisFromModel, analysisFromText, rankModels, scoreCapability } from '../lib/matching.js';
 import { buildProfile } from '../lib/discovery.js';
@@ -325,4 +326,93 @@ test('no preference leaves the measured ranking untouched', () => {
     empty.candidates.every((candidate) => candidate.preferred === undefined),
     'and must not mark anything as preferred',
   );
+});
+
+test('a per-unit preference routes one unit without disturbing the others', () => {
+  // One plan can hold a vision unit and a coding unit, and the model that should
+  // read the diagram is not the model that should write the parser.
+  const { analysisFromModel } = matching;
+  const taxonomy = new Taxonomy();
+  const analysis = analysisFromModel(taxonomy, {
+    summary: 'read the diagram, then implement the parser',
+    complexity: 'specialist',
+    requirements: [
+      { capability: 'multimodal.screenshot', weight: 0.9 },
+      { capability: 'software.implementation', weight: 0.9 },
+    ],
+    unitModelPreference: [
+      { capability: 'multimodal.screenshot', routes: [{ route: 'commandcode/gpt-5.6-sol', reason: 'vision' }] },
+    ],
+  });
+
+  assert.deepEqual(
+    analysis.unitModelPreference,
+    [{ target: 'multimodal.screenshot', routes: [{ route: 'commandcode/gpt-5.6-sol', reason: 'vision' }] }],
+  );
+});
+
+test("a caller's capability entry inherits that capability's hard requirements", () => {
+  // Regression: a caller naming `multimodal.screenshot` meant "must read an image"
+  // but could not be expected to restate the descriptor's modality floor. Without
+  // it the requirement was only a preference, so a per-unit preference could place
+  // a text-only route on work it cannot do.
+  const { analysisFromModel } = matching;
+  const taxonomy = new Taxonomy();
+  const analysis = analysisFromModel(taxonomy, {
+    summary: 'x',
+    requirements: [{ capability: 'multimodal.screenshot' }, { capability: 'capacity.very_long' }],
+  });
+
+  const visual = analysis.requirements.find((req) => req.capability === 'multimodal.screenshot');
+  assert.equal(visual.needsImageInput, true, 'the modality floor is inherited');
+
+  const capacity = analysis.requirements.find((req) => req.capability === 'capacity.very_long');
+  assert.equal(capacity.minContextWindow, 128000, 'the descriptor default context floor is inherited');
+
+  // And the inherited floor actually rejects a text-only route.
+  const result = rankModels(
+    livePool(),
+    taxonomy,
+    { ...analysis, requirements: [visual] },
+    {},
+  );
+  assert.deepEqual(
+    result.rejected.map((entry) => entry.route).sort(),
+    ['deepseek-official/deepseek-v4-flash', 'deepseek-official/deepseek-v4-pro'],
+  );
+});
+
+test('an unmatched per-unit preference leaves the ranking untouched', () => {
+  const { analysisFromModel } = matching;
+  const taxonomy = new Taxonomy();
+  const plain = analysisFromText(taxonomy, 'Implement the parser in the codebase.');
+  const withUnmatched = analysisFromModel(taxonomy, {
+    summary: 'Implement the parser in the codebase.',
+    requirements: plain.requirements.map((req) => ({ capability: req.capability })),
+    unitModelPreference: [{ capability: 'nothing.matches.this', routes: ['commandcode/gpt-5.6-sol'] }],
+  });
+
+  const a = rankModels(livePool(), taxonomy, plain, {});
+  const b = rankModels(livePool(), taxonomy, withUnmatched, {});
+  assert.deepEqual(
+    a.candidates.map((candidate) => candidate.route),
+    b.candidates.map((candidate) => candidate.route),
+    'a preference that matches nothing must not perturb the order',
+  );
+});
+
+test('a malformed per-unit entry is dropped rather than inventing a target', () => {
+  const { analysisFromModel } = matching;
+  const analysis = analysisFromModel(new Taxonomy(), {
+    summary: 'x',
+    unitModelPreference: [
+      { group: 'multimodal', routes: ['p1/m1'] },
+      { capability: 'software', routes: [] },
+      { routes: ['p2/m2'] },
+      { group: 'data' },
+      null,
+      'nonsense',
+    ],
+  });
+  assert.deepEqual(analysis.unitModelPreference, [{ target: 'multimodal', routes: [{ route: 'p1/m1', reason: undefined }] }]);
 });

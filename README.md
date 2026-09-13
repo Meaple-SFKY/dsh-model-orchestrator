@@ -335,7 +335,11 @@ vision-strong model or a maths-strong one is public knowledge the plugin does no
 must not invent; a deployment's aliases also need not match any public model name.
 
 So `orchestrate_run` and `orchestrate_plan` accept `analysis.modelPreference`: the calling
-model names the routes it judges best, most preferred first, with its reasoning. The rules:
+model names the routes it judges best, most preferred first, with its reasoning. For a plan
+whose units need **different** models — a vision unit and a maths unit rarely want the same
+route — `analysis.unitModelPreference` addresses them individually, by exact capability id or
+by cluster, with the most specific target winning for the unit it names. Units that match
+nothing keep the task-level preference. The rules:
 
 | Rule | Why |
 |---|---|
