@@ -498,3 +498,81 @@ test('a multi-unit plan chains its stages so each sees the previous findings', a
     cleanup();
   }
 });
+
+test('a configured reasoning effort reaches the child on the routed model', async () => {
+  // The pool's selector is a per-route preference; it has to arrive as the child's
+  // `agentOptions.reasoningEffort`, or choosing it in the panel would do nothing.
+  const profiles = [profileOf('p1', 'm1', { description: 'coding implementation', efforts: ['low', 'high'] })];
+  const { engine, host, cleanup } = makeEngine({
+    profiles,
+    preferences: { reasoningEffort: { 'p1/m1': 'high' } },
+  });
+  try {
+    await engine.run({ task: 'Implement the parser.', captain: CAPTAIN });
+    assert.equal(host.calls[0].request.agentOptions.reasoningEffort, 'high');
+  } finally {
+    cleanup();
+  }
+});
+
+test('a configured effort the route no longer advertises is ignored, not sent', async () => {
+  // A stale preference must degrade. Sending it would fail the child outright with
+  // UNSUPPORTED_REASONING_EFFORT, which is worse than running at the model default.
+  const profiles = [profileOf('p1', 'm1', { description: 'coding implementation', efforts: ['low', 'high'] })];
+  const { engine, host, cleanup } = makeEngine({
+    profiles,
+    preferences: { reasoningEffort: { 'p1/m1': 'xhigh' } },
+  });
+  try {
+    await engine.run({ task: 'Implement the parser.', captain: CAPTAIN });
+    assert.equal(host.calls[0].request.agentOptions.reasoningEffort, undefined);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a caller's own effort for a unit beats the configured one", async () => {
+  const profiles = [profileOf('p1', 'm1', { description: 'coding implementation', efforts: ['low', 'high'] })];
+  const { engine, host, cleanup } = makeEngine({
+    profiles,
+    preferences: { reasoningEffort: { 'p1/m1': 'low' } },
+  });
+  try {
+    await engine.run({
+      task: 'Implement the parser.',
+      captain: CAPTAIN,
+      analysis: {
+        summary: 'implement',
+        complexity: 'specialist',
+        requirements: [{ capability: 'software.implementation', weight: 1, reasoningEffort: 'high' }],
+      },
+    });
+    assert.equal(
+      host.calls[0].request.agentOptions.reasoningEffort,
+      'high',
+      'the model reading the task decides the level',
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('a configured effort applies to dispatch too, and is reported', async () => {
+  const profiles = [profileOf('p1', 'm1', { description: 'coding implementation', efforts: ['low', 'high'] })];
+  const { engine, host, cleanup } = makeEngine({
+    profiles,
+    preferences: { reasoningEffort: { 'p1/m1': 'high' } },
+  });
+  try {
+    const result = await engine.dispatch({
+      task: 'Implement the parser.',
+      provider: 'p1',
+      model: 'm1',
+      captain: CAPTAIN,
+    });
+    assert.equal(result.ok, true);
+    assert.equal(host.calls[0].request.agentOptions.reasoningEffort, 'high');
+  } finally {
+    cleanup();
+  }
+});

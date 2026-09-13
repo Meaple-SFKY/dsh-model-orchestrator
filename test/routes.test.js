@@ -619,3 +619,53 @@ test('the plan preview does not trigger a provider round trip', async () => {
     d.cleanup();
   }
 });
+
+test('the panel can set a per-route reasoning level, and an invalid one is refused', async () => {
+  const d = deps();
+  try {
+    const profile = {
+      route: 'p1/m1',
+      provider: 'p1',
+      model: 'm1',
+      name: 'M1',
+      facts: { efforts: ['low', 'high'], defaultEffort: 'low' },
+      derived: { tier: 'deep', hasReasoning: true },
+    };
+    Object.defineProperty(d.pool, 'models', { value: () => [profile], configurable: true });
+    Object.defineProperty(d.pool, 'get', {
+      value: (route) => (route === 'p1/m1' ? profile : undefined),
+      configurable: true,
+    });
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const route = server.routes.get(`${ROUTE_PREFIX}/configure`);
+
+    // A level the route does not advertise must not be stored: it would look
+    // applied while the engine silently ignores it at dispatch.
+    const bad = exchange({ method: 'POST', body: { reasoningEffort: { 'p1/m1': 'xhigh' } } });
+    await route.handler(bad.req, bad.res);
+    assert.match(bad.captured.body.rejected.join(' '), /"xhigh" is not one of low, high/);
+    assert.equal(d.store.snapshot().preferences.reasoningEffort['p1/m1'], undefined);
+
+    const good = exchange({ method: 'POST', body: { reasoningEffort: { 'p1/m1': 'high' } } });
+    await route.handler(good.req, good.res);
+    assert.deepEqual(good.captured.body.applied, ['reasoningEffort']);
+    assert.equal(d.store.snapshot().preferences.reasoningEffort['p1/m1'], 'high');
+    // The panel learns the options and the current choice from the pool document.
+    const model = good.captured.body.state.pool.models[0];
+    assert.equal(model.reasoningEffort, 'high');
+    assert.equal(model.defaultEffort, 'low');
+    assert.deepEqual(model.reasoningEfforts, ['low', 'high']);
+
+    const cleared = exchange({ method: 'POST', body: { reasoningEffort: { 'p1/m1': null } } });
+    await route.handler(cleared.req, cleared.res);
+    assert.equal(
+      d.store.snapshot().preferences.reasoningEffort['p1/m1'],
+      undefined,
+      'clearing returns the route to the model default',
+    );
+  } finally {
+    d.cleanup();
+  }
+});

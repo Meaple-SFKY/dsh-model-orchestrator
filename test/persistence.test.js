@@ -199,3 +199,51 @@ test('the state schema contains no task, step, or run state', () => {
     assert.ok(!keys.includes(forbidden), `state must not contain "${forbidden}"`);
   }
 });
+
+test('every preference key survives a write and a reload', () => {
+  // Regression: `normalizePreferences` re-normalizes on EVERY save and on read, so
+  // a key it does not carry is silently discarded. `decisionCues` was missing, which
+  // made the operator-replaceable cue vocabulary impossible to keep — the configure
+  // path reported it applied and it was gone before it could ever be used.
+  const directory = mkdtempSync(join(tmpdir(), 'orch-persist-keys-'));
+  try {
+    const store = new OrchestratorStore(directory);
+    const declared = Object.keys(defaultState().preferences).sort();
+    store.update((state) => {
+      state.preferences.decisionCues = { math: ['推导', '证明'] };
+      state.preferences.reasoningEffort = { 'p1/m1': 'high' };
+    });
+
+    for (const preferences of [
+      store.snapshot().preferences,
+      JSON.parse(readFileSync(join(directory, 'state.json'), 'utf8')).preferences,
+      new OrchestratorStore(directory).snapshot().preferences,
+    ]) {
+      assert.deepEqual(
+        Object.keys(preferences).sort(),
+        declared,
+        'a normalized preference block must keep every declared key',
+      );
+      assert.deepEqual(preferences.decisionCues, { math: ['推导', '证明'] });
+      assert.deepEqual(preferences.reasoningEffort, { 'p1/m1': 'high' });
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('malformed preference entries are dropped without taking the block with them', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'orch-persist-bad-'));
+  try {
+    const store = new OrchestratorStore(directory);
+    store.update((state) => {
+      state.preferences.reasoningEffort = { 'p1/m1': 'high', 'p1/bad': 42, 'p1/empty': '' };
+      state.preferences.decisionCues = { math: ['ok'], empty: [], broken: 'not-an-array' };
+    });
+    const preferences = new OrchestratorStore(directory).snapshot().preferences;
+    assert.deepEqual(preferences.reasoningEffort, { 'p1/m1': 'high' });
+    assert.deepEqual(preferences.decisionCues, { math: ['ok'] });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

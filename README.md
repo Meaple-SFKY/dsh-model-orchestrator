@@ -164,6 +164,33 @@ Showing the 7 route(s) this deployment offers for subagents;
 4 advertised route(s) are not selectable.
 ```
 
+### Reasoning level per route
+
+The pool's **Reasoning** column is a selector, not a label. Its options are the levels the
+host actually reports for that route (`reasoning.efforts`), plus **default** — which means
+"let the model resolve its own level", and shows which one that is whenever the host reports
+it (`reasoning.defaultEffort`). The choice is stored per `provider/model` and applied as
+`agentOptions.reasoningEffort` on every delegation the orchestrator makes to that route, so
+the captain dispatches at the level you set.
+
+The rules that keep it honest:
+
+- A level the route does not advertise is **refused when you set it**, and **ignored if it
+  goes stale** (an adapter change). Sending an unsupported level fails the child outright
+  with `UNSUPPORTED_REASONING_EFFORT`, so a stale preference degrades to the model default
+  instead — and the pool says so rather than showing it as if it applied.
+- A route that advertises no levels gets no selector.
+- A level the calling model states for a unit wins over the stored preference: the model
+  reading the task is the better judge of that unit.
+- Only the level is configurable. This plugin does not invent levels, and it still names no
+  model anywhere in its selection logic.
+
+The same preference is settable from a tool surface, for an agent asked to configure it:
+
+```
+orchestrate_configure { reasoningEffort: { "commandcode/xai/grok-4.6": "high" } }
+```
+
 ## How matching works
 
 ```
@@ -523,6 +550,7 @@ lib/
   locales.js        zh/en dictionaries for the UI (mirrored into the client bundle)
   routes.js         host control routes for the browser panel
   commands.js       the /model-orchestrator human command (host-free, so it is testable)
+  reasoning-effort.js  per-route reasoning level: validation and merge, shared by both configure surfaces
   agent-tree.js     subagent relationship tree for the board (pure, testable)
   route-policy.js   narrows discovery to the routes the deployment offers
   prompt.js         the routing-policy system prompt section

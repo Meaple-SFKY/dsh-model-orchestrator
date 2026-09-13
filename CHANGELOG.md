@@ -9,6 +9,34 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Reasoning level per route, chosen in the model pool and applied at dispatch.** The
+  **Reasoning** column is now a selector whose options are the levels the host reports for that
+  route (`reasoning.efforts`), plus **default** — "let the model resolve its own", labelled with
+  the host's `reasoning.defaultEffort` when it reports one. The choice persists per
+  `provider/model` and becomes `agentOptions.reasoningEffort` on every delegation to that route,
+  so the captain dispatches at the level the user set. Resolution order is the calling model's
+  own level for the unit, then the configured preference, then the capability descriptor's
+  declared level, then the model default — and the unit result reports the level actually used.
+  A level the route does not advertise is refused at configure time, and **ignored** if it goes
+  stale, because sending an unsupported effort fails the child outright with
+  `UNSUPPORTED_REASONING_EFFORT`; the pool reports such an entry instead of showing it as
+  applied. Settable from the panel and from `orchestrate_configure`, through one shared
+  validation module (`lib/reasoning-effort.js`).
+
+### Fixed
+
+- **`decisionCues` never survived a write, so the operator-replaceable cue vocabulary was
+  impossible to keep.** `normalizePreferences` re-normalizes the preference block on every save
+  *and* on read, and it did not carry `decisionCues` — so `orchestrate_configure` reported the
+  replacement applied and it was gone before it could ever be consulted, leaving `status` and the
+  panel reporting the built-in fallback forever. Caught by a new test that asserts every declared
+  preference key survives a write and a reload, so the next key added cannot disappear quietly.
+- **A caller's own reasoning level for a unit was dropped at intake.** `normalizeRequirement`
+  carried capability, weight, floors, and modality, but not `reasoningEffort`, so a model that
+  named a level for one unit could not actually enforce it.
+
+### Added
+
 - **`/model-orchestrator <task>`** — an explicit switch for the case the routing policy cannot
   force: the calling model deciding to delegate on its own. A command handler runs *without the
   command line reaching the model* (the host's command contract, verified against
