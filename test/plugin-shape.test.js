@@ -280,13 +280,14 @@ test('the client bundle is loadable through the harness module loader', async ()
 
   const plugin = registration.factory(requireShim)
   assert.equal(plugin.name, manifest.name)
-  assert.deepEqual(plugin.inject, ['slots'])
+  assert.deepEqual([...plugin.inject].sort(), ['locale', 'slots'])
   assert.equal(typeof plugin.apply, 'function')
 
   // Drive apply against a mock slots service and assert both seats register.
   const injections = []
   const registered = []
   const disposers = []
+  const localeRegistrations = []
   const ctx = {
     effect: (factory) => {
       const dispose = factory()
@@ -302,11 +303,28 @@ test('the client bundle is loadable through the harness module loader', async ()
         return () => {}
       },
     },
+    locale: {
+      register: (ns, dicts) => {
+        localeRegistrations.push({ ns, dicts })
+        return () => {}
+      },
+      bind: (ns) => (key) => `[${ns}:${key}]`,
+    },
   }
   plugin.apply(ctx)
 
   assert.deepEqual(injections.sort(), ['conversation.input.dock', 'settings.section'])
   assert.equal(registered.length, 2)
+  assert.equal(localeRegistrations.length, 1, 'the plugin must register one locale namespace')
+  assert.equal(localeRegistrations[0].ns, 'modelOrchestrator')
+  for (const entry of registered) {
+    assert.equal(
+      entry.options.locale,
+      'modelOrchestrator',
+      'every slot registration must carry the locale namespace so the shell injects `t`',
+    )
+    assert.equal(typeof entry.options.label, 'function', 'the label must be a thunk so it follows the locale')
+  }
   for (const entry of registered) {
     assert.ok(entry.options.id, 'every registration needs an id');
     assert.equal(typeof entry.options.order, 'number');

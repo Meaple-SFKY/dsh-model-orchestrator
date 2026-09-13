@@ -7,6 +7,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Localization.** Every user-facing string now lives in the plugin's own
+  `modelOrchestrator` locale namespace and follows the harness language setting, so the
+  panel switches between Chinese and English with the rest of the UI. Strings a **model**
+  reads (tool descriptions, parameter schemas, the routing prompt section, personas) stay
+  English on purpose.
+- A terminology policy with tests: generic vocabulary (`host`, `requires`) and
+  harness/pipeline identifiers (`provider`, `Route`, deployment ids such as
+  `workflowEngine`) are never translated, and version strings like `0.1.5-rc.1` pass
+  through verbatim.
+
+### Fixed
+
+- The model-pool table now scrolls horizontally instead of squeezing its rightmost
+  column out of view, and CJK column headers no longer wrap mid-word.
+
+
 ## [0.1.0] — 2026-09-13
 
 Initial release. Generic, domain-agnostic Model Orchestrator for DSH `0.1.5-rc.1`.

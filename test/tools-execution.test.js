@@ -21,6 +21,7 @@ import {
   readdirSync,
   rmSync,
   symlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -80,6 +81,13 @@ async function materialize(install, name) {
   if (!existsSync(join(hostModules, '@deepseek-ai', 'dsh-tools'))) {
     throw new Error(`the DSH install at ${install} has no host packages to link against`);
   }
+  // The copied modules use ESM syntax, and a scratch directory has no manifest
+  // of its own. Declaring the type explicitly keeps the test from depending on
+  // whatever the nearest ancestor package.json happens to say.
+  writeFileSync(
+    join(scratch, 'package.json'),
+    JSON.stringify({ name: 'orch-exec-scratch', private: true, type: 'module' }),
+  );
   symlinkSync(hostModules, join(scratch, 'node_modules'), 'dir');
   return {
     module: await import(pathToFileURL(join(lib, name)).href),

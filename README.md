@@ -227,6 +227,18 @@ with the evidence behind each profile, preferences, a routing preview, and curre
 capacity. A compact strip above the composer shows the mode and pool size for the session,
 with an expandable list.
 
+Both follow the harness language setting: every user-facing string lives in the plugin's
+`modelOrchestrator` locale namespace (`lib/locales.js`, mirrored inside the self-contained
+client bundle), covering both shipped locales. Strings a **model** reads — tool
+descriptions, parameter schemas, the routing prompt section, personas — are deliberately
+English and do not follow the UI language.
+
+Terminology policy: generic and technical terms stay untranslated. `host` / `requires`
+version labels, `provider`, `Route`, deployment ids such as `workflowEngine`, model and
+route names, reasoning-effort ids, and version strings like `0.1.5-rc.1` are data or
+shared identifiers, so they appear verbatim in every language. Only explanatory prose is
+translated.
+
 Both are served by the host over three same-origin routes (`state`, `configure`, `plan`).
 The browser half cannot enumerate models itself — the LLM listing surface is host-only —
 so the panel reads the real pool from the host and never guesses.
@@ -234,7 +246,7 @@ so the panel reads the real pool from the host and never guesses.
 ## Development
 
 ```sh
-node --test "test/*.test.js"   # 103 tests, no host required
+node --test "test/*.test.js"   # 113 tests, no host required
 node scripts/check-compat.mjs  # host compatibility report
 ```
 
@@ -261,6 +273,7 @@ lib/
   persistence.js    atomic state: preferences, descriptors, calibrations
   tools.js          the orchestrate_* model-facing tools
   schemas.js        tool names and parameter specs (host-free, so they are testable)
+  locales.js        zh/en dictionaries for the UI (mirrored into the client bundle)
   routes.js         host control routes for the browser panel
   prompt.js         the routing-policy system prompt section
   client.js         client bundle: settings page + session strip
