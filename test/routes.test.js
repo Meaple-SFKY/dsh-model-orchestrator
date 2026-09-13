@@ -50,10 +50,16 @@ test('the routes mount on the fast path when a web server already exists', () =>
     const dispose = installControlRoutesDeferred(ctx, d);
     assert.deepEqual(
       [...server.routes.keys()].sort(),
-      [`${ROUTE_PREFIX}/configure`, `${ROUTE_PREFIX}/plan`, `${ROUTE_PREFIX}/state`, `${ROUTE_PREFIX}/tree`],
+      [
+        `${ROUTE_PREFIX}/configure`,
+        `${ROUTE_PREFIX}/plan`,
+        `${ROUTE_PREFIX}/state`,
+        `${ROUTE_PREFIX}/sync`,
+        `${ROUTE_PREFIX}/tree`,
+      ],
     );
     dispose();
-    assert.equal(server.disposed.length, 4, 'every route must have a disposer');
+    assert.equal(server.disposed.length, 5, 'every route must have a disposer');
   } finally {
     d.cleanup();
   }
@@ -397,7 +403,7 @@ test('the installer never probes a service property on its own context', () => {
     const { ctx, injections } = fakeContext(server, { strict: true });
     const dispose = installControlRoutesDeferred(ctx, d);
     assert.deepEqual(injections, [['webServer']], 'the web server is always acquired by injection');
-    assert.equal(server.routes.size, 3 + 1, 'all four routes mount');
+    assert.equal(server.routes.size, 4 + 1, 'all five routes mount');
     dispose();
   } finally {
     d.cleanup();
@@ -732,6 +738,62 @@ test('the panel can set a capability assignment, and the state reports how it re
     assert.deepEqual(Object.keys(d.store.snapshot().preferences.capabilityAssignments), [
       'reasoning.mathematics',
     ]);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('the sync route starts a sweep and returns without waiting for it', async () => {
+  const d = deps();
+  try {
+    let started = 0;
+    let finish;
+    const gate = new Promise((done) => {
+      finish = done;
+    });
+    d.sync = {
+      start: (options) => {
+        started += 1;
+        assert.equal(options.force, false);
+        return gate;
+      },
+      status: () => ({ status: started === 0 ? 'idle' : 'running', total: 2 }),
+    };
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const route = server.routes.get(`${ROUTE_PREFIX}/sync`);
+
+    const refused = exchange({ method: 'GET' });
+    await route.handler(refused.req, refused.res);
+    assert.equal(refused.captured.status, 405, 'sync is a POST');
+
+    const accepted = exchange({ method: 'POST', body: { force: false } });
+    await route.handler(accepted.req, accepted.res);
+    assert.equal(accepted.captured.status, 200);
+    assert.equal(accepted.captured.body.ok, true);
+    assert.equal(started, 1, 'the sweep is started exactly once');
+    // It must NOT wait: the sweep takes minutes, and a blocked POST would be a
+    // worse lie than a button that reports progress.
+    assert.equal(accepted.captured.body.status.status, 'running');
+    finish();
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('a deployment with no sync runner reports it instead of failing', async () => {
+  const d = deps();
+  try {
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const route = server.routes.get(`${ROUTE_PREFIX}/sync`);
+    const answer = exchange({ method: 'POST', body: {} });
+    await route.handler(answer.req, answer.res);
+    assert.equal(answer.captured.status, 200);
+    assert.equal(answer.captured.body.ok, false);
+    assert.equal(answer.captured.body.status.status, 'unavailable');
   } finally {
     d.cleanup();
   }

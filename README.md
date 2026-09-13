@@ -492,9 +492,42 @@ same public model but differ in output budget by 4x (256k against 64k), sit behi
 providers, and are billed differently. Collapsing them would discard real, measured
 differences and break routing, which needs exact routes.
 
-It also will not fetch public model data from the network. The route ids in a deployment are
-frequently not public models at all, and a plugin that guessed at their identity from a name
-would be inventing capability rather than measuring it.
+It also does not fetch public model data from the network **by itself**. The route ids in a
+deployment are frequently not public models at all, and a plugin that guessed at their identity
+from a name would be inventing capability rather than measuring it. What it offers instead is
+Sync: an action **you** press, which researches the pool and shows you what it found, with the
+sources, and keeps what it could not confirm explicitly unconfirmed.
+
+## Model facts from the web (Sync)
+
+The host reports no pricing at all, which made the cost preference a switch that did nothing:
+every route in a pool like this one measures as the same tier, so the tie-break it shapes was
+identical everywhere. **Sync**, in the model pool, closes that with public facts:
+
+- **Which public model a route is.** A route id is the deployment's own string and often repeats
+  the publisher (`commandcode` + id `deepseek/deepseek-v4.1-flash`, advertised name
+  `DeepSeek V4.1 Flash (CC)`). Sync resolves that, or reports that it could not.
+- **Published list prices**, per million input and output tokens.
+- **What public sources say the model is good at**, and the URLs those claims came from.
+
+Sync is the one place this plugin touches the network, and it is deliberately not automatic:
+nothing is fetched at activation or on a poll, and a sweep runs only when the button is pressed.
+It searches the web once per route through the harness's own web service, then one model call
+reconciles the sources into facts — the model judges the sources, the plugin decides what it is
+allowed to see, and nothing is stored that the validator cannot check.
+
+| | |
+|---|---|
+| **Unconfirmed stays unconfirmed** | A route the researcher cannot tie to a published model is stored as unconfirmed, never given a plausible name |
+| **No estimated prices** | A price is used only if a source stated it. Missing is missing; a free tier is not a list price |
+| **Provenance is part of the record** | Every entry carries its sources, when it was read, and which route did the reading |
+| **It never overrides a measurement** | Prices only shape tie-breaks, within the same 0.08 ceiling the tier proxy used, normalised against the most expensive route in *this* pool. Hard requirements still reject before any of it is consulted |
+| **It stays visibly researched** | The pool shows it on each row, marked as researched; the profile's own evidence still reads `metadata`, so nothing from the web is silently mixed into measured facts |
+
+`preferCheaper` uses researched prices where a route has them and the tier proxy where it does
+not, so enabling research changes what cost is measured *from*, never how much it is allowed to
+matter. Researched entries are keyed by model identity, so a provider move does not orphan them —
+and an entry that stops resolving is exactly the drift the pool row shows.
 
 ## Layout
 
@@ -574,7 +607,7 @@ pgrep -fa 'dsh --profile'
 ## Development
 
 ```sh
-node --test "test/*.test.js"   # 256 tests, no host required
+node --test "test/*.test.js"   # 269 tests, no host required
 node scripts/check-compat.mjs  # host compatibility report
 ```
 
@@ -605,6 +638,9 @@ lib/
   routes.js         host control routes for the browser panel
   commands.js       the /model-orchestrator human command (host-free, so it is testable)
   reasoning-effort.js  per-route reasoning level: validation and merge, shared by both configure surfaces
+  model-research.js    public facts about models: prompt, validation, price lookup
+  web-research.js      the two-stage sync: web searches, then one reconciling model call
+  sync.js              one research sweep at a time, and its status
   model-identity.js    model identity and family keys: which live route a stored intent means
   assignments.js       the standing division of labour: normalise, resolve, report drift
   agent-tree.js     subagent relationship tree for the board (pure, testable)

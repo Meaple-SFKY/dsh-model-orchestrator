@@ -409,7 +409,7 @@ test('the orchestrator persists no task or run state of its own', async () => {
     // Only preferences, learned descriptors, and calibrations remain.
     assert.deepEqual(
       Object.keys(state).sort(),
-      ['guided', 'mode', 'preferences', 'profiles', 'schemaVersion', 'taxonomy', 'updatedAt'],
+      ['guided', 'mode', 'preferences', 'profiles', 'research', 'schemaVersion', 'taxonomy', 'updatedAt'],
     );
   } finally {
     harness.cleanup();

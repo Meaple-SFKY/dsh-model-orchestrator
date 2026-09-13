@@ -20,7 +20,7 @@
     "tools": ["register"],
     "systemPrompt": ["section"]
   },
-  "optionalServices": ["workflowEngine", "webServer", "connection", "commands"],
+  "optionalServices": ["workflowEngine", "webServer", "connection", "commands", "web"],
   "compatibilityBehaviour": {
     "onIncompatibleHost": "refuse-activation",
     "registersNothingWhenIncompatible": true,
@@ -31,6 +31,7 @@
     "peerDependencies declare the host packages this plugin imports and are checked independently.",
     "The plugin re-checks the host on every activation, so upgrading into an unsupported host is refused rather than run.",
     "`commands` is optional: without it the /model-orchestrator command is not registered and every tool, prompt section, and control route still works.",
+    "`web` is optional: without it the Sync action in the model pool reports that it cannot research, and routing is unaffected.",
     "Run `node scripts/check-compat.mjs` for a standalone host-compatibility report."
   ]
 }

@@ -9,6 +9,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Sync: public model facts and prices, researched on demand.** The host reports no pricing, so
+  `preferCheaper` was shaping tie-breaks on a tier proxy that is identical across every route in a
+  pool like this one — a switch that measured nothing. A **Sync** button in the model pool now
+  resolves each route's public identity, its published per-million-token prices, and what public
+  sources say it is good at, with the sources recorded. It is the one place this plugin touches the
+  network and it is deliberately not automatic: nothing at activation, nothing on a poll, one
+  sweep at a time, started only by a person. The plugin issues the searches through the harness's
+  own web service and then makes one model call to reconcile them — the model judges the sources,
+  the plugin decides what it may see, and everything is validated before it is stored. An
+  identity the researcher could not confirm is stored as **unconfirmed** rather than given a
+  plausible name, a price no source stated is absent rather than estimated, and each entry keeps
+  its sources, its timestamp and the route that read it. Prices then shape tie-breaks within the
+  same 0.08 ceiling as before, normalised against the most expensive route in the pool, and the
+  pool still reports `metadata` evidence — nothing from the web is mixed into measured facts.
 - **Capability assignments: a standing division of labour, set once and applied to every run.**
   Until now the only way to say "architecture to one model, implementation to another" was per
   task, through the calling model's own analysis — which is the gap between this plugin and the

@@ -409,6 +409,19 @@ test('every shipped tool parameter spec compiles under the real DSL', async () =
     assert.equal(compiled.name, name);
     assert.ok(compiled.output.schema, `${name} must expose its output schema`);
   }
+
+  // The research subagent's structured-output schema goes through the same
+  // enforced subset — it is registered as that child's tool parameters — so it is
+  // compiled here too rather than discovered to be invalid at sync time.
+  const { RESEARCH_SCHEMA } = await import('../lib/model-research.js');
+  const research = defineTool({
+    name: 'structured_output',
+    description: 'compile check for the research schema',
+    parameters: RESEARCH_SCHEMA,
+    output: { schema: { type: 'json' }, render: () => [{ type: 'text', text: 'x' }] },
+    execute: async () => ({}),
+  });
+  assert.ok(research.parameters, 'the research schema must compile as a tool parameter spec');
 });
 
 test('the schema validators in these tests actually reject a bad schema', async () => {

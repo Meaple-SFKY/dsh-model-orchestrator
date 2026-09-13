@@ -221,6 +221,28 @@ Two properties decide how a command has to be written:
 some compositions, so it is declared an optional service: without it the command is simply
 not registered.
 
+### 1.8.2 One-shot model calls and web access
+
+`ctx.llm.stream(options: GenerateOptions): AsyncIterable<StreamChunk>` is the direct call seam,
+usable without an Agent — which is what a settings-page action needs, since it has no parent to
+attach a subagent to. `GenerateOptions` is `{ provider, model, reasoningEffort?, messages:
+Message[], system?, tools?, temperature?, maxTokens?, stop?, signal?, sessionId?, purpose? }`,
+and `system` is documented as "system prompt text for one-shot callers". Collect `text-delta`
+chunks for the answer; `finish` carries the reason.
+
+`ctx.web` (`dsh-web`) is the search/fetch seam: `search({ query, maxResults? })` →
+`{ content?, sources: { url, title?, snippet?, publishedAt? }[], truncated }` and
+`fetch({ url })` → `{ url, statusCode, body }`. Both are optional services resolved through
+`ctx.inject`, so a deployment without them loses Sync and nothing else.
+
+**The tool-parameter DSL is not JSON Schema.** Verified by compiling through the host's real
+`defineTool`: the root is an IMPLICIT open object, so a `parameters` object IS the properties
+map — `{ task: { type: 'string', required: true } }` — and `required` is a BOOLEAN per property,
+never an array. Passing a wrapped `{ type: 'object', properties: {...}, required: [...] }`
+fails with `parameters.type must be a value schema object`. This matters beyond tools: a
+subagent's `outputSchema` is the same subset, because the host registers it as that child's
+structured-output tool parameters.
+
 ### 1.9 Client UI
 
 - A static client half is a pre-built bundle calling

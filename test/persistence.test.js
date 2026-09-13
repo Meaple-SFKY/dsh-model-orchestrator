@@ -194,7 +194,18 @@ test('the state schema contains no task, step, or run state', () => {
   // Pins the contract with the host: DSH owns task lists, step status, and
   // progress, so this store must never grow a parallel copy.
   const keys = Object.keys(defaultState()).sort();
-  assert.deepEqual(keys, ['guided', 'mode', 'preferences', 'profiles', 'schemaVersion', 'taxonomy', 'updatedAt']);
+  // `research` is public facts about models, researched on demand and carrying its
+  // own provenance. It is not task state, and it is still not a run history.
+  assert.deepEqual(keys, [
+    'guided',
+    'mode',
+    'preferences',
+    'profiles',
+    'research',
+    'schemaVersion',
+    'taxonomy',
+    'updatedAt',
+  ]);
   for (const forbidden of ['runs', 'tasks', 'steps', 'progress', 'todo', 'plan']) {
     assert.ok(!keys.includes(forbidden), `state must not contain "${forbidden}"`);
   }
