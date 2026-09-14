@@ -29,8 +29,16 @@ const clientSource = readFileSync(join(ROOT, 'lib', 'client.js'), 'utf8');
 async function loadHostTools() {
   const install = findDshInstall()
   if (install === undefined) return undefined
-  const compiler = join(install, 'node_modules', '@deepseek-ai', 'dsh-tools', 'lib', 'index.js')
-  if (!existsSync(compiler)) {
+  // Resolved through the host's own manifest, not a path inside it: npm hoists a global
+  // install's dependencies to the top level while a version manager nests them, so
+  // `install/node_modules/...` is only right for one layout.
+  let compiler
+  try {
+    compiler = createRequire(join(install, 'package.json')).resolve('@deepseek-ai/dsh-tools')
+  } catch {
+    compiler = undefined
+  }
+  if (compiler === undefined || !existsSync(compiler)) {
     throw new Error(
       `a DSH installation was found at ${install} but its tool compiler is missing; the schema checks would be vacuous`,
     )

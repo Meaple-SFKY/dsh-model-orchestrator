@@ -1142,11 +1142,24 @@ test('a run that exhausts its budget returns the parts that finished', async () 
       dispose: async () => {},
     });
 
-    const run = await engine.run({
-      task: 'Research the topic, then review the findings, then summarize the result.',
-      captain: CAPTAIN,
-      budgetMs: 30,
-    });
+    // The budget timer is deliberately `unref`'d in the engine — a bound must not hold a
+    // host process open — so this test has to supply the event-loop liveness the host
+    // provides in production. Without it the loop drains before the 30 ms timer fires,
+    // the child's promise never settles, and the runner reports
+    // "Promise resolution is still pending but the event loop has already resolved".
+    // Node 22 exposed that; Node 24 happened to keep the loop alive long enough, which
+    // is exactly the kind of luck a test must not depend on.
+    const keepAlive = setTimeout(() => {}, 250);
+    let run;
+    try {
+      run = await engine.run({
+        task: 'Research the topic, then review the findings, then summarize the result.',
+        captain: CAPTAIN,
+        budgetMs: 30,
+      });
+    } finally {
+      clearTimeout(keepAlive);
+    }
 
     assert.equal(run.budgetExhausted, true, 'the caller must be told it holds partial results');
     assert.equal(run.budgetMs, 30);

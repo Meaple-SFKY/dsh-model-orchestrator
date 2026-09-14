@@ -5,6 +5,38 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] — 2026-09-14
+
+### Fixed
+
+- **Node 22 failed the suite with 7 tests cancelled; Node 24 passed by luck.** The budget timer is
+  deliberately `unref`'d — a bound must not hold a host process open — and the test that exercises it
+  relied on the event loop staying alive long enough for a 30 ms timer to fire. On Node 22 the loop
+  drained first, so the child's result promise never settled and the runner cancelled the remaining
+  tests in that file with `Promise resolution is still pending but the event loop has already
+  resolved`. The test now supplies the liveness the host provides in production. Verified against a
+  real Node 22.23.2, three runs, plus Node 24.
+- **The host-dependent checks silently required this machine's install layout.** They located the
+  host's packages at `<install>/node_modules/@deepseek-ai/…`, which is true of a version-manager
+  install and false of a global one: npm **hoists** a globally installed CLI's dependencies to the
+  top level. Against a published `npm install @deepseek-ai/dsh@0.1.5-rc.1`, **18 checks failed** —
+  every one that exercises the real host contract, which is exactly the half that matters for a
+  plugin others install. The helpers now reproduce Node's own resolution (nested first, top level
+  as the fallback, the CLI always linked) and resolve host modules through the host's manifest
+  instead of a path inside it. Three local copies of that logic are now one.
+
+### Added
+
+- **CI runs the suite against a real, published harness.** The bare-checkout job can only ever prove
+  that the host-dependent checks *skip*; a second job installs `@deepseek-ai/dsh@0.1.5-rc.1` and runs
+  the same 312 checks with **nothing skipped**. That is the guarantee a user cares about, and adding
+  it is what exposed the layout assumptions above.
+
+### Verified
+
+- 312 checks, 0 skipped against a version-manager install, against a **freshly published npm install**,
+  and on **Node 22 and 24**. With no harness at all: 296 pass, 16 skipped, 0 fail.
+
 ## [0.2.6] — 2026-09-14
 
 ### Fixed
@@ -704,6 +736,7 @@ Initial release. Generic, domain-agnostic Model Orchestrator for DSH `0.1.5-rc.1
 - Only `spawn` and `fork` subagent providers are consulted; any registered provider that
   advertises the `agentOptions` capability works.
 
+[0.2.7]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.3...v0.2.4

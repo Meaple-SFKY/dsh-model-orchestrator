@@ -12,64 +12,30 @@
  * they do when it is installed.
  */
 import test from 'node:test';
-import { findDshInstall } from './helpers/host-install.js';
+import { findDshInstall, materialize } from './helpers/host-install.js';
 import assert from 'node:assert/strict';
 import {
-  copyFileSync,
   existsSync,
-  mkdirSync,
   mkdtempSync,
-  readdirSync,
   rmSync,
-  symlinkSync,
-  writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 
-/**
- * Materialize the plugin so its host imports resolve, then import a module.
- *
- * @param install - the DSH package directory.
- * @param name - the module under `lib/` to import.
- * @returns `{ module, cleanup }`.
- */
-async function materialize(install, name) {
-  const scratch = mkdtempSync(join(tmpdir(), 'orch-exec-'));
-  const lib = join(scratch, 'lib');
-  mkdirSync(lib, { recursive: true });
-  for (const entry of readdirSync(join(ROOT, 'lib'))) {
-    if (entry.endsWith('.js')) copyFileSync(join(ROOT, 'lib', entry), join(lib, entry));
-  }
-  const hostModules = join(install, 'node_modules');
-  if (!existsSync(join(hostModules, '@deepseek-ai', 'dsh-tools'))) {
-    throw new Error(`the DSH install at ${install} has no host packages to link against`);
-  }
-  // The copied modules use ESM syntax, and a scratch directory has no manifest
-  // of its own. Declaring the type explicitly keeps the test from depending on
-  // whatever the nearest ancestor package.json happens to say.
-  writeFileSync(
-    join(scratch, 'package.json'),
-    JSON.stringify({ name: 'orch-exec-scratch', private: true, type: 'module' }),
-  );
-  symlinkSync(hostModules, join(scratch, 'node_modules'), 'dir');
-  return {
-    module: await import(pathToFileURL(join(lib, name)).href),
-    scratch,
-    cleanup: () => rmSync(scratch, { recursive: true, force: true }),
-  };
-}
 
 /** A live engine wired to stub host services, plus the validator. */
 async function harness(install) {
   const materialized = await materialize(install, 'tools.js');
-  const host = await import(
-    pathToFileURL(join(install, 'node_modules', '@deepseek-ai', 'dsh-util-values', 'lib', 'index.js')).href
-  );
+  // Resolved from the host's own manifest rather than from a hardcoded path inside it:
+  // npm hoists a global install's dependencies to the top level and a version manager
+  // nests them, so `install/node_modules/...` is only correct for one of the two.
+  const hostRequire = createRequire(join(install, 'package.json'));
+  const host = await import(pathToFileURL(hostRequire.resolve('@deepseek-ai/dsh-util-values')).href);
   const { ModelPool } = await import(pathToFileURL(join(materialized.scratch, 'lib', 'discovery.js')).href);
   const { Taxonomy } = await import(pathToFileURL(join(materialized.scratch, 'lib', 'taxonomy.js')).href);
   const { OrchestratorStore } = await import(

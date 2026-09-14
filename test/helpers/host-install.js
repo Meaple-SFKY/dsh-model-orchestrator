@@ -63,16 +63,40 @@ export async function materialize(install, name, options = {}) {
   for (const entry of readdirSync(join(ROOT, 'lib'))) {
     if (entry.endsWith('.js')) copyFileSync(join(ROOT, 'lib', entry), join(lib, entry));
   }
-  const hostModules = join(install, 'node_modules');
-  const hostScoped = join(hostModules, '@deepseek-ai');
-  if (!existsSync(join(hostScoped, 'dsh-tools'))) {
-    throw new Error(`the DSH install at ${install} has no host packages to link against`);
+  // Reproduce the resolution the CLI itself performs, in the CLI's own order.
+  //
+  // npm's two layouts differ and both are normal: a global install HOISTS the CLI's
+  // dependencies to the top level, while a version-manager install keeps them NESTED
+  // inside the CLI. Node resolves nested first and the top level second, so the scratch
+  // tree does the same — nested wins, the top level fills what it does not carry, and the
+  // CLI itself is always linked. Assuming either layout alone made the suite pass on this
+  // development machine and fail against a published install, which is how CI and every
+  // other user would have it.
+  const nested = join(install, 'node_modules', '@deepseek-ai');
+  const topLevel = join(dirname(dirname(install)), '@deepseek-ai');
+  if (!existsSync(nested) && !existsSync(topLevel)) {
+    throw new Error(
+      `the DSH install at ${install} has no host packages to link against (looked in ${nested} and ${topLevel})`,
+    );
   }
-  // The copied modules use ESM syntax, and a scratch directory has no manifest
-  // of its own. Declaring the type explicitly keeps the test from depending on
-  // whatever the nearest ancestor package.json happens to say — and a caller that
-  // exercises the compatibility gate needs the REAL manifest, because a scratch
-  // one without `engines.dsh` would make the gate refuse the host it is testing.
+  const scratchScoped = join(scratch, 'node_modules', '@deepseek-ai');
+  mkdirSync(scratchScoped, { recursive: true });
+  // The CLI package itself, which the compatibility gate reads its running version from
+  // and which is never inside its own nested tree.
+  symlinkSync(install, join(scratchScoped, 'dsh'), 'dir');
+  for (const source of [nested, topLevel]) {
+    if (!existsSync(source)) continue;
+    for (const entry of readdirSync(source)) {
+      const target = join(scratchScoped, entry);
+      if (existsSync(target)) continue; // nested wins: it is what Node would pick
+      symlinkSync(join(source, entry), target, 'dir');
+    }
+  }
+  // The copied modules use ESM syntax, and a scratch directory has no manifest of its
+  // own. Declaring the type explicitly keeps the tests from depending on whatever the
+  // nearest ancestor package.json says — and a caller exercising the compatibility gate
+  // passes its REAL manifest, because a scratch one without `engines.dsh` would make the
+  // gate refuse the host it is testing.
   writeFileSync(
     join(scratch, 'package.json'),
     JSON.stringify(
@@ -81,22 +105,7 @@ export async function materialize(install, name, options = {}) {
         : { ...options.manifest, private: true, type: 'module' },
     ),
   );
-  // A SYNTHETIC node_modules, not a symlink to the host's: the CLI package
-  // `@deepseek-ai/dsh` lives in the Node installation's own node_modules, one level
-  // ABOVE the install's, while the sub-packages live inside it. Linking only
-  // `install/node_modules` therefore resolved `@deepseek-ai/dsh-tools` but never
-  // `@deepseek-ai/dsh` — which is exactly the package the compatibility gate
-  // resolves the running version from, so those checks could only skip.
-  const scratchModules = join(scratch, 'node_modules');
-  const scratchScoped = join(scratchModules, '@deepseek-ai');
-  mkdirSync(scratchScoped, { recursive: true });
-  symlinkSync(install, join(scratchScoped, 'dsh'), 'dir');
-  for (const entry of readdirSync(hostScoped)) {
-    const target = join(scratchScoped, entry);
-    if (existsSync(target)) continue;
-    // `dsh` is already linked to the install itself.
-    symlinkSync(join(hostScoped, entry), target, 'dir');
-  }
+
   return {
     module: await import(pathToFileURL(join(lib, name)).href),
     scratch,
