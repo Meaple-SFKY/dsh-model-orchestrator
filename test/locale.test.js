@@ -57,10 +57,14 @@ async function embeddedDictionaries() {
   })
   plugin.apply({
     effect: (factory) => { factory() },
+    on: () => () => {},
     slots: { inject: (_key, callback) => callback(), register: () => () => {} },
     locale: {
       register: (ns, dicts) => { captured.push({ ns, dicts }); return () => {} },
       bind: () => (key) => key,
+      // The bundle reports the active language to the host on mount and on change, so
+      // the double has to answer the read the way the real service does.
+      getLocale: () => ({ active: 'en', locales: [], revision: 1 }),
     },
   })
   assert.equal(captured.length, 1)

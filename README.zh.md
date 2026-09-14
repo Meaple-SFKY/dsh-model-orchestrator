@@ -58,11 +58,19 @@ harness 只提供一个受支持的、用于选定模型的接缝：**子**代�
 dsh plugin --profile <name> add github:Meaple-SFKY/dsh-model-orchestrator
 ```
 
-或者从本地检出安装：
+或者从本地检出安装——**以 tarball 形式**：
 
 ```sh
-dsh plugin --profile web add /path/to/dsh-model-orchestrator
+npm pack --pack-destination /tmp
+dsh plugin --profile web add /tmp/dsh-model-orchestrator-0.3.0.tgz
 ```
+
+直接安装目录本身（`add /path/to/dsh-model-orchestrator`）**行不通**，而且失败方式看起来像插件有
+bug，而不是安装出了问题：pnpm 记录的是 `link:` 依赖，插件的真实路径因此留在 profile 之外，
+Node 的逐级向上查找永远到不了 profile 的 `node_modules`——而它导入的宿主包
+（`@deepseek-ai/dsh-tools`、`@deepseek-ai/dsh-llm`……）正放在那里。加载会以
+`Cannot find package '@deepseek-ai/dsh-tools'` 失败。打包成 tarball 会被实体化到 profile 内部，
+解析因此正常。这也意味着 profile 里存的是一份**快照**：改动检出目录后，需要重新打包并再次 add。
 
 等本包发布到 npm 之后，上面这条可以简写为：
 
@@ -108,17 +116,24 @@ handler 运行时**命令行不会到达模型**（这是宿主的命令契约�
 
 诚实说明其边界：这让意图变得显式、投递可靠，但路由仍然由代理执行——该命令不会绕过 captain，也不会让编排变成自动行为。自动仍是默认；这个命令用于你希望它被保证执行的时候。`recordInput: false` 避免任务被记录两次，而且只有当部署挂载了 `commands` 服务时，该命令才会被注册。
 
+**它会用你的语言回答。** 该命令的回复、它的一行摘要和它的输入提示，全都来自面板所用的同一张 locale 表。语言来自你设置过的持久 `locale` 选项；当你没有设置时，则来自面板告诉宿主它正在渲染哪种语言。后一个来源不是锦上添花：harness 解析语言的顺序是「显式设置 → 浏览器探测 → en」，而且从不把浏览器推导出的值写回宿主，所以没有它，宿主在默认情况下根本无从得知界面语言，这些文案在中文界面里会一直是英文。插件只读取该设置、从不写入，而且显式选择永远优先于浏览器的推断。
+
+harness 对**第三方**命令的描述与提示是原样渲染的——它只翻译自己内置的命令——所以语言变化时插件会重新注册该命令；这次重新注册是它的命令面板条目能跟随你切换语言的唯一途径。设置页也会用面板自己的语言写明该命令、它的提示和它的用法，因此无需打开命令面板也能发现这段文案。
+
 ### 工具
 
 | 工具 | 用途 |
 |---|---|
 | `orchestrate_run` | 分析、匹配、派发每个单元，并返回全部结果。主入口。 |
 | `orchestrate_dispatch` | 把一个自包含单元派发给一个模型。更便宜，也更可预测。 |
+| `orchestrate_ask` | 向同一次 run 中一个**已完成**的单元提出后续问题并取回它的答案，且使用当初完成该工作的那条路由。 |
 | `orchestrate_plan` | 展示路由决策，但**不**执行它。 |
 | `orchestrate_models` | 当前真实存在的模型，以及每个画像背后的证据。 |
 | `orchestrate_capabilities` | 能力词汇表，包括已学到的内容。 |
-| `orchestrate_configure` | 修改偏好设置。 |
-| `orchestrate_status` | 当前模式、模型池、映射关系、分工表与研究到的公开事实，以及哪些 cue 组仍是内置的。 |
+| `orchestrate_configure` | 修改偏好设置：模式、成本、并行度、路由、推理档位、能力分工表、依赖交接，以及同辈提问与评审的边界。 |
+| `orchestrate_status` | 当前模式、模型池、映射关系、分工表、研究到的公开事实、哪些 cue 组仍是内置的，以及健康报告。 |
+
+每个会收到调用方分析的工具都会说明**每个字段该放在哪里**，并强制执行这一点，而不是选择相信：被放到顶层的值会以 `misplacedArguments` 回报，并给出应当改用的参数路径（路由属于 `units[].route` 或 `analysis.modelPreference[].route`）；无法识别的参数会以 `unusedArguments` 返回；顶层的 `modelPreference`/`unitModelPreference` 会被折进 `analysis`，并在 `foldedIntoAnalysis` 中指名。一条被静默忽略的路由不可能发生——但这份报告必须被阅读，这正是描述里要点名它的原因。
 
 ## 模型池里有哪些模型
 
@@ -153,6 +168,8 @@ Showing the 7 route(s) this deployment offers for subagents;
 | `none` | 未报告任何推理信息 | 一个短横线 |
 
 处于 `automatic` 状态的路由默认**按原样**使用：不发送任何档位，于是 provider 做的正是它本来会做的事。如果你知道自己的 provider 接受一个它没有列出的档位，你仍然可以设置——`orchestrate_configure { reasoningEffort: { "<route>": "high" } }`——它会被接受、被发送，并在模型池中标记为 **manual**。没有任何东西能验证它，所以 provider 拒绝的档位会让那次派发以适配器自己的错误失败；这就是不去静默忽略你所提要求的代价。完全不报告推理的路由无法被指定档位，而列出了档位的路由则保持严格规则：一个已不在其列表上的 id 属于过期条目，会被忽略。
+
+无论档位由谁提出，都不会被发送给一条无法表达它的路由。已存储的偏好、调用方自己提出的单元素档位、以及能力描述符声明的档位，都会针对目标路由逐一校验；路由没有声明的档位会被丢弃——该路由随后自行解析默认值——并在该单元的结果里报告为 `effortUnavailable`。过去它会被照发，理由是调用方的判断高于插件，结果适配器拒绝了这条路由，该单元一个字的回答都没有产出。
 
 这一区分在路由中很重要，不只是面板里。需要推理的能力同时接受 `adjustable` 和 `automatic`；而一个指名档位的需求（例如"必须暴露 high"）需要 `adjustable`，因为一个无法被选中的档位满足不了它。为一条不报告档位的路由设置档位，会在设置时被拒绝，若它过后过期则被忽略——发送不受支持的档位会让子代理直接失败。
 
@@ -212,9 +229,11 @@ orchestrate_configure { capabilityAssignments: {
 有两件事它刻意不是：
 
 - **它不是一把锁。** 表格提供偏好顺序；匹配器仍会重排合格候选，仍会强制执行硬性需求和部署的路由策略。表格条目永远无法复活被它们排除掉的路由。
-- **它不是关于某个单元的最终裁决。** 调用方模型仍可以用 `analysis.unitModelPreference` 在单个单元上压过它，因为那才是关于该单元更具体的陈述。完整的阶梯是：调用方模型的按单元选择 → 这张表 → 调用方模型的任务级偏好 → 实测排名。
+- **它不是一把锁，但它确实是第一优先级。** 你已配置的能力遵循这张表；要让位的是调用方模型自己的偏好，而单元结果会说明这一点（`decidedBy: "assignment"`，外加指名被顶替了什么的 `overriddenCallerPreference`）。完整阶梯是：这张表 → 调用方模型的按单元选择 → 调用方模型的任务级偏好 → 实测排名。这是刻意反转了早先的顺序——你做过一次的决定，不该被碰巧在调用的那个模型悄悄推翻。
 
-  这两个偏好都必须写在 **`analysis` 内部**（任务级用 `modelPreference`，单个单元用 `unitModelPreference`）。若被放到调用的**顶层**，它会被折进 analysis 并回报为 `foldedIntoAnalysis` —— 因为这个错误曾让一个七单元的研究计划**静默地**全部落到同一个模型上；而其他任何工具不认识的参数会以 `unusedArguments` 报回，而不是被丢弃。
+  这两个偏好都写在 **`analysis` 内部**（任务级用 `modelPreference`，单个单元用 `unitModelPreference`）。若被放到调用的**顶层**，它会被折进 analysis 并回报为 `foldedIntoAnalysis`，因为这个错误曾让一个七单元的研究计划**静默地**全部落到同一个模型上；而工具不认识的任何*其他*参数会以 `unusedArguments` 报回，一个放错位置的*已知*参数则会得到一条 `misplacedArguments` 记录，指名它该放在哪里。
+
+  调用方自带的 `units` 也按同一套阶梯路由，那张表也包括在内。它们过去只查询调用方自己的偏好，因此自带一个单元图会静默绕过你所配置的分工。
 
 同一个 cluster 内的能力在分工不同时会被拆成独立单元。这正是"架构给 GPT、实现给 DeepSeek"能成真的原因：两者都位于 `software` cluster，如果不拆，它们会合并成一个单元、落在同一个模型上，表格就会静默地什么都不做。
 
@@ -281,6 +300,10 @@ score(model, task) = geometric_mean( satisfaction(requirementᵢ, model) ^ weigh
 3. 至少注册了一条带有可用 id 的 provider **路由**——刻意不要求能响应模型列表，因为那可能是一次网络往返（见*性能*一节）。
 
 任何一项检查失败，插件就**不**注册任何工具、提示词小节或路由，记录一个精确原因（指名该需求与发现到的东西），并抛出，让该行大声失败。它绝不静默降级。因为这道门在每次激活时都会运行，升级进入不支持的宿主会被拒绝，而不是被运行。
+
+**这道门之后的一切都是隔离的。** 这道门本就该大声——不兼容的宿主是一个决定，不是一次意外。但过去每个子系统的*注册*同样没有保护，而一个 composition 条目失败并不是局部失败：harness 的启动审计视之为致命错误并销毁整个 context，于是一个坏掉的工具 schema 会连带拖垮无关的插件。现在每个子系统都在一个 guard 之内注册。失败只会禁用**那个**子系统、记录原因，并让其他一切继续工作。
+
+这就是**健康（health）**这一行所报告的内容，在设置页和 `orchestrate_status` 上都是：每个子系统为 `enabled`、`degraded` 或 `disabled` 并附原因，此外还有这个部署没有提供的可选服务。一个没能挂载的控制面板，或一个因为没有搜索 provider 而永远不可能工作的 Sync，现在是一个可见状态，而不是一条日志。可选服务在每次读取时都会重新检查，因此一个挂载得晚的服务不会被报告为永久缺失。
 
 随时可以运行独立检查：
 
@@ -356,18 +379,24 @@ node scripts/check-compat.mjs
 
 **能力领域**属于 Guided 模式，页面也这么说明：在 Auto 下该面板是折叠的，并有一行说明它在哪里；选择 Guided 时，它以短促的滑动淡入展开，而不是瞬间替换布局。过渡约 340 ms，`prefers-reduced-motion: reduce` 会完全关掉它，文案称呼模式的方式与按钮一致（`自动` / `引导`，绝不混用译名与英文模式名）。
 
-**Orchestrator** 是一个 Conversation 视图，与 `Chat` 和 `Trajectory` 同级：
+**Orchestrator** 是一个 Conversation 视图，与 `Chat` 和 `Trajectory` 同级。它就是你正在查看的那个会话的看板：一张**自左向右的依赖图**，描绘任务是如何被派发出去的——从任务本身，经过 captain，到编排器派发的每一个单元（包括某个单元又依次派发的子代理），一直到最终输出，而它永远是最右侧的节点。
 
-![The Orchestrator board showing two delegations on different models](docs/board-two-models.png)
- 它是你正在查看的会话的面板，由三部分组成：
+- **布局** —— 每个依赖深度一列，因此阅读的方向就是工作的方向。边被绘制成曲线，其控制点始终留在列与列之间的空隙内，所以一根连线永远不会穿过节点框；共享同一来源或同一目标的边会分散在不同泳道上，彼此不重叠。
+- **六种边**，各自绘制方式不同，且全部列在图例中：**task**（任务指向它启动的东西）、**dispatch**（谁派发给了谁）、**dependency**（最强的一条线：这个单元必须等待那一个）、**question**（虚线——一个单元向已完成的同辈问了点什么）、**review**（有自己的颜色，并标注轮次与裁决），以及 **output**（一个已定局的单元汇入最终答案）。一根触及正在运行对象的连线会流动。
+- **五种节点**，全部列在图例中：任务、captain、被路由的单元、harness 自行启动的会话（一次**原生派发**——编排器没有为它选择任何模型），以及最终输出。
+- **完整的生命周期** —— `waiting`（并指名它在等谁）、`not started`、`running`、`completed`、`failed`，以及 `unknown`。只有被路由的派发才显示模型：路由来自单元自己的记录，而不是对 label 的推断。
+- **对不知道的事保持诚实。** harness 的列表报告的是一个会话*记录*是否驻留，这与是否真有代理在运行它并不是一回事。因此插件自己的运行日志优先级更高——编排器已完成的一个单元会报告 `completed`，即使持久记录仍说 `running`——而任何其他持续声称自己运行了超过半小时的，都会变成 `unknown`，原因写在其 tooltip 中。对于一个已不再运行该会话的宿主，它不会永远显示"running"。
+- **交互** —— 拖动一个节点，它的连线会跟着走；悬停一个节点或一根连线，所有无关内容都会变暗；每根连线都有一个很宽的无形命中区域，因此悬停它会高亮它所连接的两个节点，并显示两端各自的类型。
+- **每个节点的详情** —— 能力、路由以及由谁决定、评审轮次、耗时、它提出和回答了多少个问题、它写下的答案的路径、一段摘要，以及失败时的错误。过长的值会在框内截断，完整文本放在 tooltip 中，而 label 在两种语言下都会在框内换行。
+- **一条顶栏**，显示本次 run 的数字：已派发、运行中、已完成、失败、提问数与评审数，以及这次 run 已经花了多久。它下方是分组图例，覆盖每一种节点类型、每一种生命周期状态和每一种边的样式——由图渲染器所用的同一套词汇构建，因此不可能彼此漂移。
 
-- **派发图（Delegation graph）** —— 本会话的每个子代理，缩进在启动它的代理之下，并显示其模式（`one-shot` / `continuable`）和实时活动。编排器路由的派发会显示它选中的模型；DSH 自己启动的则标记为**原生派发**，因为编排器从未为它选择模型。拓扑读自 harness 自己的持久会话树（`ctx.subagents.listDescendants`），每隔几秒刷新，因此它显示的是真实存在的派发，而不是一份镜像副本。路由来自派发自身的 label——宿主的列表不报告模型——所以 `orchestrate_run` 和 `orchestrate_dispatch` 都写 `<name> via <route>`。
-- **统计（Stats）** —— 有多少个派发、多少正在运行、多少分支。
-- **路由容量（Routing capacity）** —— 当前模式、实时模型池大小、在途派发数和能力数量。
+这张图合并了两个来源。**harness 会话树**（`ctx.subagents.listDescendants`）是真实的拓扑——每个持久会话一个节点，每条上报的父子关系一根边——而插件的**运行日志**补上了 harness 从来不知道的东西：一个单元覆盖了哪个能力、它跑在哪条路由上、它产出了什么以及写到了哪里、谁评审了它、谁向谁提了问，以及单元之间的依赖边。单靠任何一方都画不出这张图。
 
-输入框上方刻意没有常驻条：面板才是检查派发工作的地方，再加一条既会与它重复，也会挤占输入框。
+输入框上方刻意没有常驻条：看板才是检查派发工作的地方，再加一条既会与它重复，也会挤占输入框。
 
 两者都遵循 harness 的语言设置：每个面向用户的字符串都位于插件的 `modelOrchestrator` locale 命名空间中（`lib/locales.js`，并在自包含的客户端 bundle 内镜像），覆盖两个随附 locale。**模型**读取的字符串——工具描述、参数 schema、路由提示词小节、persona——刻意保持英文，不跟随 UI 语言。
+
+设置页还带有一行**健康（health）**信息：哪些子系统处于活动状态、哪些处于降级（degraded）以及原因、哪些被禁用以及原因，以及这个部署没有提供哪些可选服务。一个没能挂载的面板，或一个永远不可能工作的 Sync，会在那里可见，而不是变成一条没人看的日志。
 
 能力名称沿用同样的划分：分类体系的 label 面向模型，保持英文，因为它们会进入子代理提示词和派发 label，而面板通过自己的 `capability.label.<id>` 条目翻译它们——于是「能力领域」以中文呈现，而代理收到的仍是 `Testing and verification`。尚未有条目的已学能力会回退到它的分类体系 label。
 
@@ -382,6 +411,34 @@ node scripts/check-compat.mjs
 `chain: true` 则把计划变成**流水线**：每个单元收到前序单元的发现，这正是真正的先后序列（"先研究、再评审、后总结"）所需要的。它以前是**自动**的，而那是错在相反的方向：一个含八项需求的研究任务被串成七个顺序代理，每个都自己做检索、每个都要等前面全部完成 —— 结果撞上调用方 30 分钟的工具调用上限，返回一个超时错误、**零结果**，因为超时丢的是全部而不是已完成的部分。决定这一点的是代价的不对称：并行单元可能少一点跨单元上下文，而串行一旦超时就全都拿不到。调用方若自己提供 `units`，无论如何都完全掌控依赖图，其 `dependsOn` 永远不会被改写。其中每个单元都可以自带 `route` 来指定路由，也可以不写、由它声明的能力来路由；若指定的路由已不在实时模型池里，会**降级为按能力路由**并以 `routeRequested` 说明它原本要哪一个，而不是让这个单元因为一个过期的名字而丢掉。另外，自带单元的 `prompt` 请写短：本次 run 的 `task` 会被自动加到每个单元的提示里，重复写只会让这个参数大到写错的概率上升。
 
 **一次运行也会自我限时。** `budgetMs`（默认 25 分钟）会在调用方自己的工具调用上限之前中止本次运行，从而返回已完成的单元、把其余标为未完成，并置 `budgetExhausted`。没有它，那个上限就是唯一的限制，代价是整次运行。若你自己的工具调用上限比默认值更短，请传更小的 `budgetMs`。
+
+### 一个单元从它依赖的单元那里收到什么
+
+声明了依赖的单元会收到该依赖的**完整答案**，若有结构化结果也一并收到。这正是"依赖某个东西"的含义——预览恰恰会丢掉依赖单元所需要的推理。其他每个单元仍然只收到近期完成项的**有界摘要**，绝不是某个同辈的全文，因为它之所以独立，原因正是它不需要全文。
+
+有三个设置会改变这一点：`handoff.strategy`（`full`，默认，或 `summary`）、`handoff.maxChars`（500–200 000）和 `handoff.includeStructured`。
+
+### 每个答案都会被写下来
+
+一次 run 的结果很容易大于 harness 愿意内联携带的大小，而一旦如此，harness 就会用一个有界预览加一个定位符来替换它——这过去意味着调用方模型只会被告知结果"被存在了某处"，却读不到任何一个单元的答案。
+
+因此每个单元的完整答案都会在结果被限界之前先写入文件：run 目录里每个单元一份 Markdown 文档，外加一个 `index.md`，列出每个单元、它的路由、它的结果和它的字节数。结果里会带上 `results[].artifact.path` 以及 run 级的 `artifacts.dir` / `artifacts.index`；被截断的内联答案会说明省略了多少、其余在哪里（`textTruncated`、`elidedChars`）。当已知调用会话的工作目录时，该目录是它里面的 `.dsh-orchestrator/artifacts`，否则就是插件自己的状态目录。写入是尽力而为的：只读工作区会降级为"本次 run 没有 artifacts"，并上报在 `artifacts.problems` 中，而这次 run 不受影响。
+
+### 向一个已经回答过的单元提问
+
+`orchestrate_ask` 向同一次 run 中一个**已完成**的单元发送后续问题，并在当初完成该工作的那条路由上返回它的答案。每个单元都会在自己的提示词中得到本次 run 的 id 以及它可以提问的单元列表，因此这项能力是可发现的，而不是停留在理论上。
+
+仍在**运行中**的单元会直接拒绝——它还没有答案，把问题排队要么会让提问者死锁，要么会重复工作——而拒绝时会指名哪些单元*可以*回答。提问按每次 run 和每个提问单元设上限（`questions.maxPerRun`，默认 4），并有超时（`questions.timeoutMs`，默认 4 分钟）。run 结果会报告每一次提问与回答。
+
+### 评审循环
+
+声明了 `reviews: [ids]` 的单元是一个**评审者（reviewer）**。它被排在它所评审的单元之后，收到它们的完整答案，并应当这样回答：
+
+```json
+{ "verdict": "approve", "objections": [{ "unit": "impl", "issue": "no tests were mentioned" }] }
+```
+
+一次拒绝会把每个被提出异议的单元连同异议一起退回——这样它是修订，而不是从头再来——然后评审者再次裁决。这个循环由 `review.maxRounds` 限定（默认 2）。有两条规则让它安全，而不只是有限：无法被读取的裁决会被记录为 **`unknown`**，并且循环**停止**，因为一份读不懂的答案不是批准；而一个先给出了答案、随后失败的子代理绝不会换一个模型重跑，因为那是内容问题，再付一个模型的钱也修不好它。
 
 ## 谁来决定用哪个模型
 
@@ -405,12 +462,16 @@ node scripts/check-compat.mjs
 
 | 层级 | 由谁设定 |
 |---|---|
-| `analysis.unitModelPreference` | 调用方模型，关于**一个单元**——最具体的陈述 |
-| **能力分工** | **用户**固定下来的策略，在面板中设置一次 |
+| **能力分工** | **用户**固定下来的策略，在面板中设置一次——**第一**优先级 |
+| `analysis.unitModelPreference` | 调用方模型，关于**一个单元** |
 | `analysis.modelPreference` | 调用方模型，关于**任务** |
 | 实测排名 | 插件，依据宿主事实 |
 
-因此任务级偏好**不会**推翻用户配置的那张表——否则任何爱多说的调用方都会悄悄击败它——而按单元的偏好仍然可以，这就是为单个单元覆盖该表的方式。工具描述会明确告诉调用方模型这一点，使它去求助自己的模型知识，而不是相信一个自己无法解读的路由 id，也使它明白自己站在哪一层上。
+用户已配置的能力**始终遵循那张表**。这是对早先阶梯的刻意反转，那时调用方的按单元偏好可以压过它：表是用户做过一次、并期望它成立的决定，一个爱多说的调用方不该悄悄击败它。这次反转不是静默的——见下一段——而且那张表**对调用方自带的单元也一样**会被查询，此前并非如此：自带一个单元图过去会完全绕过你配置的分工。
+
+**由谁决定写在结果里。** 每个单元都会带上 `decidedBy` —— `assignment`、`caller-unit`、`caller-task`、`caller-pin` 或 `measured` —— 而当那张表顶替了调用方的偏好时，该单元还会带上 `overriddenCallerPreference`，逐字指名被顶替的是什么。`routeReason` 用文字说明同一件事，因此"这个单元为什么在这个模型上"可以从 run 本身回答，而不必靠推断。
+
+**有序的表会顺次向下尝试。** 一个能力可以按优先级顺序指名多个模型，而无法作答的路由会落到下一个候选。但只有当子代理*什么都没*产出时才会如此：一个先回答了、随后失败的子代理是内容问题，再为它付第二个模型的钱也修不好。
 
 ### 判断权属于模型
 
@@ -444,6 +505,10 @@ node scripts/check-compat.mjs
 
 Sync 是**插件自身**在网络上采取的唯一动作——唯一一个由它选择成本与内容的动作。它刻意不是自动的：激活时或轮询时都不抓取，只有按下按钮才做一次清扫。（harness 自己的模型发现在刷新模型池时确实会与 provider 通话；这就是插件让发现过程不进入启动路径、也绝不在轮询时重跑它的原因。见*性能*。）
 在没有 `web` 服务的部署上，Sync 会报告它无法研究，其他一切不受影响——该服务和命令注册表一样是可选的。它通过 harness 自己的 web 服务为每条路由搜索一次网络，然后用一次模型调用把来源归整为事实——模型判断来源，插件决定它被允许看到什么，且不存储验证器无法核查的内容。
+
+**一次扫描按 provider 分组，一次失败只让一个 provider 付出代价。** 它过去是对整个模型池的单次调用，于是一个联系不上的 provider——或一个以散文形式返回的 reconciling 答案——会丢弃其他所有 provider 的事实，并只报一个错误、零结果。现在每个 provider 各自被研究，它的事实一落地就写入，因此扫描会以 `done`、`partial` 或 `error` 报告自身，并附带每个 provider 的结果；一个从未作答的 reconciling 路由会先在下一个候选路由上重试。
+
+**失败会说明它看到了什么。** `the research answer contained no JSON object` 曾是全部的诊断信息，从中什么都推不出来：不知道模型是答了散文、什么都没答，还是以解析器漏掉的方式包裹了它的 JSON。答案的长度、它的开头文字、是否存在围栏代码块、reconciling 路由及其分块数，现在都作为 `sync.detail` 随失败一起传递，而消息本身也会指名它们。
 
 | | |
 |---|---|
@@ -501,7 +566,7 @@ pgrep -fa 'dsh --profile'
 ## 开发
 
 ```sh
-node --test "test/*.test.js"   # 293 tests, no host required
+node --test "test/*.test.js"   # 408 checks, no host required
 node scripts/check-compat.mjs  # host compatibility report
 ```
 
@@ -532,7 +597,12 @@ lib/
   sync.js              one research sweep at a time, and its status
   model-identity.js    model identity and family keys: which live route a stored intent means
   assignments.js       the standing division of labour: normalise, resolve, report drift
-  agent-tree.js     subagent relationship tree for the board (pure, testable)
+  agent-tree.js     subagent relationship tree and lifecycle truth for the board (pure, testable)
+  runs.js           the run journal: sibling questions, review rounds, and the board's edges
+  artifacts.js      each unit's answer on disk, plus the run index, with degraded fallback
+  arguments.js      how a tool call's arguments are read, and where a misplaced one belongs
+  health.js         which subsystem is enabled, degraded or disabled, and why
+  host-locale.js    the host half's view of the UI language (read-only, from `settings`)
   route-policy.js   narrows discovery to the routes the deployment offers
   prompt.js         the routing-policy system prompt section
   client.js         client bundle: settings page + the Orchestrator board

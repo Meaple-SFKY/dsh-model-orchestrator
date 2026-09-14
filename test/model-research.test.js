@@ -21,7 +21,8 @@ import {
   researchFor,
   researchPrompt,
 } from '../lib/model-research.js';
-import { createSyncRunner } from '../lib/sync.js';
+import { createSyncRunner, groupByProvider } from '../lib/sync.js';
+import { ResearchAnswerError, parseJsonAnswer } from '../lib/web-research.js';
 
 const POOL = [
   { route: 'commandcode/gpt-5.6-sol', model: 'gpt-5.6-sol', name: 'GPT-5.6 Sol (CC)' },
@@ -361,4 +362,125 @@ test('the same public model behind two providers is one entry, not two', () => {
     ['gpt56sol', 'stealthoxalpha'],
     'an unconfirmed route keeps its own identity key, not the public one',
   );
+});
+
+// ---- per-provider isolation, diagnostics, and grouping ----------------------
+
+const TWO_PROVIDERS = [
+  { route: 'alpha/m1', provider: 'alpha', model: 'm1', name: 'M1' },
+  { route: 'alpha/m2', provider: 'alpha', model: 'm2', name: 'M2' },
+  { route: 'beta/m3', provider: 'beta', model: 'm3', name: 'M3' },
+];
+
+test('routes are grouped by provider, falling back to the route prefix', () => {
+  const groups = groupByProvider([
+    { route: 'alpha/m1', provider: 'alpha' },
+    { route: 'alpha/m2', provider: 'alpha' },
+    { route: 'beta/m3', provider: 'beta' },
+    // No `provider` field: the vendor prefix is still its own group, so a pool row
+    // without one cannot drag unrelated vendors into a single batch.
+    { route: 'gamma/m4' },
+  ]);
+  assert.deepEqual(
+    groups.map((group) => [group.provider, group.models.length]),
+    [['alpha', 2], ['beta', 1], ['gamma', 1]],
+  );
+});
+
+test('one unreachable provider no longer costs every other provider its facts', async () => {
+  // Reproduced from a real sync: a single call covered the whole pool, so one
+  // provider that could not be reached discarded the facts of the other four and the
+  // pass reported one error with no results at all.
+  const updates = [];
+  const runner = createSyncRunner({
+    pool: { models: () => TWO_PROVIDERS },
+    store: {
+      snapshot: () => ({ research: {} }),
+      update: (mutator) => {
+        const state = { research: {} };
+        mutator(state);
+        updates.push(state.research);
+      },
+      writeError: undefined,
+    },
+    runResearch: async ({ provider }) => {
+      if (provider === 'beta') throw new Error('provider beta is unreachable');
+      return {
+        results: [
+          { route: 'alpha/m1', matched: true, publicName: 'M1' },
+          { route: 'alpha/m2', matched: true, publicName: 'M2' },
+        ],
+      };
+    },
+    now: () => 3,
+    providerConcurrency: 1,
+  });
+
+  const status = await runner.start({});
+  assert.equal(status.status, 'partial', 'some answered and some did not');
+  assert.equal(status.stored, 2, "the reachable provider's facts are stored");
+  assert.match(status.error, /beta/);
+  assert.deepEqual(status.failedProviders, ['beta']);
+  assert.deepEqual(
+    status.providers.map((entry) => [entry.provider, entry.status]),
+    [['alpha', 'done'], ['beta', 'error']],
+  );
+  assert.equal(updates.length, 1, 'only the answering provider writes');
+});
+
+test('a failure to read the answer travels with what the researcher saw', async () => {
+  const runner = createSyncRunner({
+    pool: { models: () => [{ route: 'alpha/m1', provider: 'alpha', model: 'm1' }] },
+    store: { snapshot: () => ({ research: {} }), update: () => {}, writeError: undefined },
+    runResearch: async () => {
+      throw new ResearchAnswerError('the research answer contained no JSON object: it was 12 character(s)', {
+        length: 12,
+        excerpt: 'I cannot do ',
+      });
+    },
+    now: () => 1,
+  });
+
+  const status = await runner.start({});
+  assert.equal(status.status, 'error');
+  assert.equal(status.detail.excerpt, 'I cannot do ', 'the status carries the answer excerpt');
+  assert.equal(status.providers[0].detail.length, 12, 'and so does the provider outcome');
+});
+
+test('an unreadable research answer says what it actually saw', () => {
+  // The bare "no JSON object" message was the entire failure the user got.
+  assert.throws(
+    () => parseJsonAnswer('I am unable to browse the web.'),
+    (error) => {
+      assert.ok(error instanceof ResearchAnswerError);
+      assert.match(error.message, /contained no JSON object/);
+      assert.match(error.message, /30 character\(s\)/);
+      assert.match(error.message, /I am unable to browse/);
+      assert.equal(error.detail.objectFound, false);
+      return true;
+    },
+  );
+
+  assert.throws(
+    () => parseJsonAnswer(''),
+    (error) => {
+      assert.match(error.message, /was empty/);
+      assert.equal(error.detail.empty, true);
+      return true;
+    },
+  );
+
+  assert.throws(
+    () => parseJsonAnswer('```json\n{ "results": [ }\n```'),
+    (error) => {
+      assert.match(error.message, /was not valid JSON/);
+      assert.equal(error.detail.objectFound, true);
+      assert.equal(error.detail.fenced, true);
+      return true;
+    },
+  );
+
+  // The two shapes that must keep working.
+  assert.deepEqual(parseJsonAnswer('{"results":[]}'), { results: [] });
+  assert.deepEqual(parseJsonAnswer('Here you go:\n```json\n{"results":[]}\n```\nDone.'), { results: [] });
 });

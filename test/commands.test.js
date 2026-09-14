@@ -16,6 +16,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { translate } from '../lib/locales.js';
 import {
   COMMAND_NAME,
   USAGE,
@@ -28,7 +29,7 @@ import {
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** A host-free stand-in for the command registry, the agent, and the message factory. */
-function harness({ commands = true, followup = true, factory = true } = {}) {
+function harness({ commands = true, followup = true, factory = true } = {}, locale) {
   const registered = [];
   const messages = [];
   const disposed = [];
@@ -54,6 +55,7 @@ function harness({ commands = true, followup = true, factory = true } = {}) {
   const deps = {
     logger: undefined,
     state: () => ({ mode: 'auto', poolSize: 7, capabilityCount: 24, inFlight: 0 }),
+    ...(locale === undefined ? {} : { locale }),
   };
   if (factory) {
     deps.createUserMessage = (input) => ({ id: 'message-1', role: 'user', ...input });
@@ -126,7 +128,7 @@ test('status reports live routing capacity and never wakes the agent', async () 
   for (const rawInput of ['status', '  STATUS  ']) {
     const result = await definition.handler({ agent: h.agent, rawInput });
     assert.equal(result.kind, 'success');
-    assert.match(result.text, /mode auto/);
+    assert.match(result.text, /mode Auto/);
     assert.match(result.text, /7 model\(s\)/);
     assert.match(result.text, /24 capabilit\(ies\)/);
     assert.match(result.text, /0 delegation\(s\) in flight/);
@@ -183,14 +185,18 @@ test('the command layer imports nothing from the host at load time', () => {
   // running harness, and only when it was not injected.
   const source = readFileSync(join(ROOT, 'lib', 'commands.js'), 'utf8');
   const staticImports = [...source.matchAll(/^\s*import[\s\S]*?from\s+'([^']+)'/gm)].map((m) => m[1]);
-  assert.deepEqual(staticImports, ['./util.js'], 'only local modules may be imported statically');
+  assert.deepEqual(
+    staticImports,
+    ['./util.js', './locales.js'],
+    'only local modules may be imported statically',
+  );
   assert.match(source, /await import\('@deepseek-ai\/dsh-llm'\)/, 'the host factory stays lazy');
 });
 
 test('the directive names the failure it prevents', () => {
   const text = directiveText('x');
   assert.match(text, /default model/, 'the directive must say why native delegation is wrong here');
-  assert.ok(statusText(undefined).startsWith('Model Orchestrator — mode auto'));
+  assert.ok(statusText(undefined).startsWith('Model Orchestrator — mode Auto'));
 });
 
 test('status reports the division of labour and the researched facts when they exist', () => {
@@ -211,5 +217,64 @@ test('status reports the division of labour and the researched facts when they e
   });
   assert.match(rich, /assignments: 3, 1 unresolved, 1 route\(s\) unassigned/);
   assert.match(rich, /researched: 5 route\(s\), 2 unconfirmed/);
-  assert.match(rich, /mode guided/);
+  assert.match(rich, /mode Guided/);
+});
+
+// ---- the command follows the UI language ------------------------------------
+
+test('the whole command surface answers in the UI language', async () => {
+  // Reproduced from a Chinese UI: `/model-orchestrator` replied in English, because
+  // every string here was a literal and nothing consulted the locale at all.
+  const h = harness({}, { translate: (key, params) => translate('zh', key, params), language: 'zh' });
+  installCommandDeferred(h.ctx, h.deps);
+  const definition = h.registered[0];
+
+  assert.match(definition.description, /模型编排器/);
+  assert.equal(definition.input.hint, '[<任务> | status]');
+
+  const empty = await definition.handler({ agent: h.agent, rawInput: '' });
+  assert.equal(empty.kind, 'error');
+  assert.match(empty.text, /用法：/);
+
+  const status = await definition.handler({ agent: h.agent, rawInput: 'status' });
+  assert.equal(status.kind, 'success');
+  assert.match(status.text, /模型编排器/);
+  assert.match(status.text, /模式 自动/);
+  assert.match(status.text, /个模型/);
+  assert.equal(/Model Orchestrator/.test(status.text), false, 'no English may leak through');
+
+  const routed = await definition.handler({ agent: h.agent, rawInput: '做一件事' });
+  assert.match(routed.text, /正在通过编排器路由/);
+
+  const noAgent = await definition.handler({ rawInput: 'do a thing' });
+  assert.match(noAgent.text, /当前会话没有可用的智能体/);
+});
+
+test('the English command surface is unchanged', async () => {
+  const h = harness();
+  installCommandDeferred(h.ctx, h.deps);
+  const definition = h.registered[0];
+  assert.match(definition.description, /route one task through the Model Orchestrator/);
+  assert.equal(definition.input.hint, '[<task> | status]');
+  assert.equal((await definition.handler({ agent: h.agent, rawInput: '' })).text, USAGE);
+});
+
+test('a language change re-registers the command, because the harness will not', () => {
+  // The palette entry is rendered verbatim for a third-party command, so a descriptor
+  // registered once is frozen in whatever language was active at activation.
+  const listeners = [];
+  const h = harness({}, {
+    language: 'en',
+    translate: (key) => key,
+    subscribe: (listener) => {
+      listeners.push(listener);
+      return () => {};
+    },
+  });
+  installCommandDeferred(h.ctx, h.deps);
+  assert.equal(h.registered.length, 1);
+  h.deps.locale.language = 'zh';
+  for (const listener of listeners) listener('zh');
+  assert.equal(h.registered.length, 2, 'the command was registered again');
+  assert.deepEqual(h.disposed, [COMMAND_NAME], 'and the previous registration was removed');
 });

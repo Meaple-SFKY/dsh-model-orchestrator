@@ -5,6 +5,237 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-09-15
+
+The routing table became authoritative, a run became observable and retrievable, and
+one broken subsystem stopped being able to take the harness down with it.
+
+### Fixed
+
+- **A failed sync reported one sentence and nothing else.** `the research answer
+  contained no JSON object` was the entire failure the user got, from which nothing can
+  be concluded or fixed: not whether the model answered prose, answered nothing, or
+  wrapped its JSON in a way the parser missed. The answer's length, its opening text,
+  whether a fenced block was present, the reconciling route and its chunk count now
+  travel with the failure as `sync.detail`, and the message itself names them.
+- **One unreachable route ended the whole sync.** A single pass covered the entire pool
+  with one research call, so one provider that could not be reached — or one
+  reconciling route that answered with prose — discarded the facts of every other
+  provider and reported one error with no results at all. A pass is now grouped by
+  provider, its groups overlap at two at a time, each group's facts are written as soon
+  as they land, and the sweep reports itself as `done`, `partial` or `error` with a
+  per-provider outcome. A reconciling route that never answered is also retried on the
+  next candidate route instead of ending the batch.
+- **The panel and the tools could disagree about the pool, and the panel was the one
+  that was wrong.** `/state` re-discovered only when pressed, while every tool call went
+  through the engine's own staleness check — so after a restart the panel could report
+  one provider while the tools already saw five. A poll now re-discovers when the live
+  provider set no longer matches the advertised one; the check is a synchronous registry
+  read, so an ordinary poll still asks no provider anything.
+- **A provider-listing failure silently emptied the pool.** `llm.listProviders()`
+  failing was caught and returned as "a successful discovery of nothing", which replaced
+  a good pool with an empty one and left `lastError` unset. It throws now, so the pool
+  keeps what it had and says why.
+- **A caller-supplied unit ignored the user's capability table.** The supplied-unit
+  branch consulted only the caller's own `unitModelPreference`, so a caller that supplied
+  its own unit graph bypassed the division of labour the user had configured — the table
+  was honoured for derived units and ignored for these. Supplied units now take the same
+  ladder as derived ones.
+- **A parameter placed at the top level was reported as a bare name.** The plugin did
+  report the misplacement, but nothing said where the value belonged, and the tool
+  descriptions never mentioned the fields that carry the report. Every known
+  misplacement now returns `misplacedArguments` with the parameter path to use instead
+  (`a route belongs in units[].route or analysis.modelPreference[].route`), and both
+  `orchestrate_run` and `orchestrate_plan` document `misplacedArguments`,
+  `unusedArguments` and `foldedIntoAnalysis` as part of their contract.
+- **A long run's result could not be read at all.** Beyond the harness's inline ceiling
+  the tool result was replaced by a locator, so the calling model was told the result
+  "was stored somewhere" and could not read a single unit's answer. Every unit's complete
+  answer is now written to a real file before the document is bounded, the result carries
+  `results[].artifact.path` plus a run-level `artifacts.dir`/`artifacts.index`, and an
+  elided inline copy says how much was cut and where the rest is. Writing is best-effort:
+  a failure becomes `artifacts.problems` and the run is unaffected.
+- **A child that failed without a message produced an empty `error`.** Only `output` and
+  `stopReason` were read, so a one-shot child that ran out of output budget and one that
+  was cancelled were indistinguishable from the result. A failure now always explains
+  itself, naming the stop reason and saying when no message came with it.
+- **`elapsedMs` was always 0.** It was computed against a `startedAt` captured while the
+  run document was being assembled — after every child had finished. The run now times
+  itself from before its first await, and every unit reports its own duration too.
+- **`/model-orchestrator` answered in English under a Chinese UI.** Every reply, the
+  command's own description and its input hint were literals. The host half now reads
+  the durable `locale` setting (never writes it), translates through the same dictionary
+  the panel uses, and re-registers the command when the language changes — which is the
+  only way a third-party command's palette entry can follow it, since the harness renders
+  that copy verbatim.
+- **The panel's first paint was Chinese for everyone.** The pre-locale fallback preferred
+  `zh` over `en`, so a Chinese interface flashed for users whose language is English
+  before the real locale landed. It now prefers the harness's own default, English.
+- **One broken subsystem failed the whole harness boot.** Every registration step in
+  `apply()` was unwrapped, and the boot audit treats a failed composition entry as fatal
+  — it disposes the entire context, unrelated plugins included. Each subsystem now
+  registers inside a guard: a failure disables that subsystem, records why, and leaves
+  everything else working. The compatibility gate is deliberately still loud.
+- **`orchestrate_dispatch` reported a successful delegation as failed.** It passed the
+  raw child object, which has no `id`, into the run document, so `counts` said 0 completed
+  / 1 failed and `routes` came back empty for a dispatch that had worked.
+
+### Added
+
+- **The capability table is the first routing priority.** A capability the user has
+  configured always follows the table; the calling model's own `unitModelPreference` no
+  longer overrides it. This reverses 0.2.8's ladder on purpose — the table is a decision
+  the user made once and expects to hold — and the reversal is visible rather than silent:
+- **The host reports which language it is using, and why.** `orchestrate_status` carries
+  `locale: { language, source, explicit }`. The harness renders a third-party command's copy
+  verbatim, so "why is my slash command still English?" has exactly one answer — the host never
+  learned the UI language — and this is where that answer is readable.
+- **Every route decision is attributed.** A unit result carries `decidedBy`
+  (`assignment` · `caller-unit` · `caller-task` · `caller-pin` · `measured`) and, when the
+  table displaced a caller's preference, `overriddenCallerPreference` names what was
+  displaced. `routeReason` says the same thing in prose, so "why is this on that model"
+  is answerable from the run itself.
+- **An ordered table falls through.** A capability may name several models in priority
+  order, and a route that cannot answer now falls through to the next candidate — but
+  only when the child produced NOTHING. A child that answered and then failed is a
+  content problem, and paying a second model for it would not fix it.
+- **Dependency handoff is a policy, not a hardcoded slice.** A unit that declared a
+  dependency receives that dependency's COMPLETE answer (plus its structured result);
+  every other unit still receives a bounded digest of recent completions. `handoff.strategy`
+  (`full`/`summary`), `handoff.maxChars` and `handoff.includeStructured` change it.
+- **Run artifacts.** Each unit's answer is written as Markdown next to an index that names
+  every unit, its route, its outcome and its byte count, inside the calling session's
+  working directory when one is known and the plugin's state directory otherwise.
+- **`orchestrate_ask`: a unit can question a finished sibling.** The run id and the list
+  of askable units are handed to every unit in its own prompt. A unit that is still
+  RUNNING refuses outright — it has no answer yet — and the refusal names the units that
+  CAN answer. Bounded by `questions.maxPerRun` (default 4, per asking unit) and
+  `questions.timeoutMs` (default 4 minutes). Questions and answers are reported in the
+  run result.
+- **A review loop.** A unit that declares `reviews: [ids]` is scheduled after those units
+  and receives their complete answers; it answers with
+  `{ "verdict": "approve" | "reject", "objections": [{ "unit", "issue" }] }`. A rejection
+  sends each objected unit back with the objection attached and then judges again, up to
+  `review.maxRounds` (default 2). A verdict that cannot be read is recorded as `unknown`
+  and STOPS the loop — an unreadable answer is not approval.
+- **The orchestration board is a graph.** The panel's board was a vertical indented list;
+  it now draws a left-to-right dependency graph from the user's task, through the captain
+  and every dispatched unit, to the final output. Six edge kinds (task, dispatch,
+  dependency, question, review, output) are drawn distinctly, one column per dependency
+  depth with the output rightmost, edges routed through the gaps between columns so they
+  cross no node box, review verdicts labelled on the edge that carries them, and a legend
+  grouped by node kind, lifecycle status and edge style.
+- **A complete lifecycle vocabulary.** "Waiting on a dependency" is now distinct from "not
+  started", and it names who it is waiting for. A session the host no longer runs reports
+  `unknown` rather than claiming to run forever, backed by two real signals: the plugin's
+  own journal (which knows how its units ended) outranks the harness's resident-record
+  report, and a continuously observed claim beyond 30 minutes degrades to `unknown` with
+  the reason attached.
+- **A health report.** Every subsystem — pool, taxonomy, tools, prompt section, sync, web
+  search, control panel, command — reports `enabled`, `degraded` or `disabled` with a
+  reason, and the optional dependencies a deployment does not provide are listed beside
+  them. It is on the panel and on `orchestrate_status`, so a surface that did not mount is
+  visible instead of being a log line nobody read.
+
+### Changed
+
+- **`orchestrate_run`'s `units` contract is documented in full.** `units[].provider` +
+  `units[].model` (an alternative to `route`) and `units[].capabilityLabel` were read by
+  the engine and declared nowhere; `units[].reviews` is new. The parameter spec, the
+  run tool's description and `lib/schemas.js` now agree, and the units declaration lives
+  in ONE place so the runtime contract and the validated mirror cannot drift again.
+- **The schema mirror is complete again.** `orchestrate_plan` was missing `tier`, and
+  `orchestrate_run` was missing `units`, `budgetMs` and `chain`; `orchestrate_configure`
+  was missing `reasoningEffort` and `capabilityAssignments`.
+
+### Changed
+
+- **The board's screenshot was removed rather than left to mislead.** `docs/board-two-models.png`
+  showed the indented list this release replaces; a picture of a design that no longer exists is
+  worse than no picture, and the README now describes the graph in text until a real screenshot
+  of it can be taken.
+
+### Fixed during live verification
+
+- **After a restart the board contradicted itself in three ways at once.** The run journal
+  is kept in memory, so a restart left the harness session tree standing while every run
+  record vanished — and the graph was derived from that missing record instead of from what
+  the page actually shows. The captain — the session you are looking at — reported itself
+  "unknown"; the task called itself "not started" while its delegations were standing right
+  there; and the final output, which had nothing left to feed it, hung off a single
+  captain-to-output wire that climbed over the whole graph to reach it. The captain now
+  reports itself running (it is the session the board belongs to, which is alive by
+  definition), the task says unknown when its record is gone but its delegations are not, the
+  output is fed by the settled delegations, and the captain's own wire is drawn only when
+  nothing else feeds the output. `test/board-geometry.test.js` renders that exact
+  post-restart state and pins all three.
+- **Some wires on the board did not touch the boxes they belonged to.** A fan's wires were
+  spread by moving each wire's ENDPOINT along the box edge, so a run with many units pushed
+  the outer wires of its fan past the top and bottom of the box and into mid-air — visible as
+  a wire that stops short of the box it is supposed to come from. The lane now bends each
+  wire away from a fixed anchor instead, which is what the comment above that code already
+  claimed it did. `test/board-geometry.test.js` renders the real board in Node and measures
+  every wire's two endpoints against the box rectangles, on a small fan and on a twenty-unit
+  one, so the defect is pinned by geometry rather than by eyeballing it.
+
+- **The locale report route took the control panel down with it — and the fault isolation
+  is what made that legible.** The locale reader was declared below the route installer
+  that consumes it, and the installer's synchronous `ctx.inject` hit the temporal dead
+  zone: `Cannot access 'locale' before initialization`. The guard from this same release
+  caught it, disabled only that subsystem, kept the plugin and every other surface alive,
+  and named the reason in the health report — which is exactly the behaviour that guard
+  exists for, demonstrated in production rather than in a test. `test/activation.test.js`
+  now drives the real `apply()` against a host-shaped context whose injection fires
+  immediately, which is the condition that broke and the one no unit test could reach.
+
+- **The language fix only worked if you had set a language explicitly.** The harness resolves
+  a UI language as "explicit host setting → browser detection → en" and never writes the
+  browser-derived value back, so on a default deployment the host genuinely could not know the
+  UI language — and the slash command's palette entry and replies stayed English inside a
+  Chinese UI. The panel now reports the language it is rendering to a new
+  `POST /plugins/dsh-model-orchestrator/locale` route, and the host follows it. Precedence is
+  "your explicit setting, then what the UI is showing, then the host environment, then
+  English", and the plugin still never writes the setting.
+- **A table that landed on the route the caller had named still claimed to have overridden
+  it.** Found by running the plugin against a live deployment: the table and the caller's
+  preference agreed, and the result said `it overrode the caller's unitModelPreference` — a
+  false accusation that made every table-driven unit look like a conflict.
+  `overriddenCallerPreference` is now reported only when the outcome actually differs from
+  what the caller asked for.
+- **The health report contradicted itself.** `missingDependencies` was a snapshot taken at
+  activation, so a deployment where the web server mounted a moment later showed
+  `webServer absent` right next to `controlPanel enabled`. The list is re-probed on every
+  read now, so a late mount is not reported as permanently missing.
+
+### Fixed after a real install
+
+- **The documented local-checkout install did not work.** `dsh plugin --profile <name> add
+  /path/to/checkout` records a pnpm `link:` dependency, which leaves the plugin's real path
+  outside the profile — so Node's parent-walk never reaches the profile's `node_modules`, where
+  the host packages the plugin imports actually live, and the load fails with
+  `Cannot find package '@deepseek-ai/dsh-tools'`. Packing a tarball (`npm pack`) and installing
+  that is materialized inside the profile and resolves correctly; the README now says so, and
+  warns that the profile then holds a snapshot rather than a live link.
+
+### Verified
+
+- 408 checks, 0 skipped, against a real DSH 0.1.5-rc.1 install on Node 24, and
+  `npm run check` reports the host compatible.
+- Installed into the `web` profile and loaded through the host's own resolution: the entry
+  imports, exports `name` / `inject` / `apply`, and the client bundle loads through the
+  harness's module loader.
+- Activated end to end by `test/activation.test.js`: `apply()` mounts the control routes,
+  registers all eight tools and the command, and — with the tools registry made to throw —
+  disables only that subsystem and reports it.
+- Exercised live against that deployment: the capability table outranked a caller preference
+  with `decidedBy: "assignment"` and `overriddenCallerPreference`; a misplaced top-level
+  `route` came back with the path it belongs at; a two-unit run with a declared reviewer
+  produced real `elapsedMs` (139 976 ms total, 8 900 / 131 070 per unit), wrote both answers
+  plus an index to disk, and recorded `verdict: "approve"`; `orchestrate_ask` answered a
+  follow-up on the route that did the work while naming the units that could be asked; and a
+  reviewer that REJECTED sent its objection back for a re-run (`revizedByReview`,
+  `reviewRound: 2`), judged again, and stopped exactly at `maxRounds`.
+
 ## [0.2.8] — 2026-09-14
 
 ### Fixed
@@ -764,6 +995,7 @@ Initial release. Generic, domain-agnostic Model Orchestrator for DSH `0.1.5-rc.1
 - Only `spawn` and `fork` subagent providers are consulted; any registered provider that
   advertises the `agentOptions` capability works.
 
+[0.3.0]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.8...v0.3.0
 [0.2.8]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.5...v0.2.6

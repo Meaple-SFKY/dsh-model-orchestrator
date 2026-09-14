@@ -8,7 +8,12 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAgentTree, flattenAgentTree, MAX_TREE_NODES } from '../lib/agent-tree.js';
+import {
+  buildAgentTree,
+  flattenAgentTree,
+  MAX_TREE_NODES,
+  STALE_RUNNING_MS,
+} from '../lib/agent-tree.js';
 
 /** One well-formed child row. */
 const child = (id, parentId, extra = {}) => ({
@@ -151,4 +156,61 @@ test('no label, mode, or vendor name is invented anywhere in the tree', () => {
   for (const forbidden of ['deepseek', 'gpt-', 'claude', 'provider']) {
     assert.ok(!serialized.includes(forbidden), `the tree must not carry "${forbidden}"`);
   }
+});
+
+// ---- lifecycle truth: a record that outlives its work -----------------------
+
+test('a unit the orchestrator finished reports its real terminal state', () => {
+  // The durable listing reports whether a session RECORD is resident, not whether an
+  // agent is running it, so a finished child kept showing as running.
+  const known = new Map([['finished', 'completed'], ['bad', 'failed']]);
+  const tree = buildAgentTree(
+    'root',
+    [child('finished', 'root', { activity: 'running' }), child('bad', 'root', { activity: 'running' })],
+    { knownStatuses: known, now: 1_000 },
+  );
+  assert.equal(tree.nodes[0].activity, 'completed');
+  assert.match(tree.nodes[0].activityReason, /finished this unit/);
+  assert.equal(tree.nodes[1].activity, 'failed');
+  assert.equal(tree.counts.completed, 1);
+  assert.equal(tree.counts.failed, 1);
+  assert.equal(tree.counts.running, 0);
+});
+
+test('a record that has claimed to be running for too long becomes unknown', () => {
+  // The requirement: an old session the host no longer runs must not show "running"
+  // forever. A run this plugin still owns is tracked in the journal and reported from
+  // there; anything else falls back to "unknown", which is visibly not "working".
+  const seenRunning = new Map();
+  const entries = [child('stale', 'root', { activity: 'running' })];
+  const first = buildAgentTree('root', entries, { seenRunning, now: 0 });
+  assert.equal(first.nodes[0].activity, 'running', 'a fresh claim is credible');
+
+  const later = buildAgentTree('root', entries, { seenRunning, now: STALE_RUNNING_MS + 1 });
+  assert.equal(later.nodes[0].activity, 'unknown');
+  assert.match(later.nodes[0].activityReason, /resident record/);
+  assert.equal(later.counts.unknown, 1);
+  assert.equal(later.counts.running, 0);
+});
+
+test('a session that stops claiming to run is not remembered as stale', () => {
+  const seenRunning = new Map();
+  buildAgentTree('root', [child('flip', 'root', { activity: 'running' })], { seenRunning, now: 0 });
+  // It goes inactive, then runs again much later: the second run is a NEW claim and
+  // must not inherit the first one's age.
+  buildAgentTree('root', [child('flip', 'root', { activity: 'inactive' })], { seenRunning, now: 10 });
+  const again = buildAgentTree('root', [child('flip', 'root', { activity: 'running' })], {
+    seenRunning,
+    now: 20,
+  });
+  assert.equal(again.nodes[0].activity, 'running');
+});
+
+test('a running orchestration unit is reported as running from the journal', () => {
+  const tree = buildAgentTree('root', [child('live', 'root', { activity: 'inactive' })], {
+    knownStatuses: new Map([['live', 'running']]),
+    now: 0,
+  });
+  assert.equal(tree.nodes[0].activity, 'running');
+  assert.match(tree.nodes[0].activityReason, /orchestration run/);
 });

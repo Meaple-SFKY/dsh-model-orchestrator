@@ -251,6 +251,8 @@ test('the client bundle is loadable through the harness module loader', async ()
       const dispose = factory()
       if (typeof dispose === 'function') disposers.push(dispose)
     },
+    // The bundle reports the active language to the host and follows `locale/change`.
+    on: () => () => {},
     slots: {
       inject: (key, callback) => {
         injections.push(key)
@@ -267,6 +269,7 @@ test('the client bundle is loadable through the harness module loader', async ()
         return () => {}
       },
       bind: (ns) => (key) => `[${ns}:${key}]`,
+      getLocale: () => ({ active: 'en', locales: [], revision: 1 }),
     },
   }
   plugin.apply(ctx)

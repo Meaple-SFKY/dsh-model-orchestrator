@@ -15,6 +15,8 @@ import { exchange, fakeContext, fakeServer } from './helpers/fake-context.js';
 import { OrchestratorStore } from '../lib/persistence.js';
 import { ModelPool } from '../lib/discovery.js';
 import { Taxonomy } from '../lib/taxonomy.js';
+import { createHealth } from '../lib/health.js';
+import { createRunJournal } from '../lib/runs.js';
 
 /** Minimal engine/pool/taxonomy/store bundle the routes read. */
 function deps() {
@@ -56,6 +58,7 @@ test('the routes mount on the fast path when a web server already exists', () =>
       [...server.routes.keys()].sort(),
       [
         `${ROUTE_PREFIX}/configure`,
+        `${ROUTE_PREFIX}/locale`,
         `${ROUTE_PREFIX}/plan`,
         `${ROUTE_PREFIX}/state`,
         `${ROUTE_PREFIX}/sync`,
@@ -63,7 +66,7 @@ test('the routes mount on the fast path when a web server already exists', () =>
       ],
     );
     dispose();
-    assert.equal(server.disposed.length, 5, 'every route must have a disposer');
+    assert.equal(server.disposed.length, 6, 'every route must have a disposer');
   } finally {
     d.cleanup();
   }
@@ -407,7 +410,7 @@ test('the installer never probes a service property on its own context', () => {
     const { ctx, injections } = fakeContext(server, { strict: true });
     const dispose = installControlRoutesDeferred(ctx, d);
     assert.deepEqual(injections, [['webServer']], 'the web server is always acquired by injection');
-    assert.equal(server.routes.size, 4 + 1, 'all five routes mount');
+    assert.equal(server.routes.size, 4 + 2, 'all six routes mount');
     dispose();
   } finally {
     d.cleanup();
@@ -936,3 +939,224 @@ test('applying a configuration re-narrows the pool instead of waiting for stalen
     d.cleanup();
   }
 });
+
+test('a poll follows a provider that registered after activation', async () => {
+  // The panel used to serve whatever the activation-time discovery saw until
+  // someone pressed Refresh, so it could report ONE provider while every tool —
+  // whose call goes through the engine's own staleness check — already saw five.
+  const d = deps();
+  try {
+    let refreshes = 0;
+    d.engine.poolTopologyChanged = () => true;
+    d.engine.refresh = async () => {
+      refreshes += 1;
+      return { models: [] };
+    };
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const ok = exchange();
+    await server.routes.get(`${ROUTE_PREFIX}/state`).handler(ok.req, ok.res);
+    assert.equal(refreshes, 1, 'the poll re-discovers when the provider set changed');
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('a poll does not re-discover while the provider set is unchanged', async () => {
+  const d = deps();
+  try {
+    let refreshes = 0;
+    d.engine.poolTopologyChanged = () => false;
+    d.engine.refresh = async () => {
+      refreshes += 1;
+      return { models: [] };
+    };
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const ok = exchange();
+    await server.routes.get(`${ROUTE_PREFIX}/state`).handler(ok.req, ok.res);
+    assert.equal(refreshes, 0, 'a poll must stay cheap when nothing changed');
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('a failed topology refresh is reported and does not break the state document', async () => {
+  const d = deps();
+  try {
+    d.engine.poolTopologyChanged = () => true;
+    d.engine.refresh = async () => {
+      throw new Error('provider is offline');
+    };
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const ok = exchange();
+    await server.routes.get(`${ROUTE_PREFIX}/state`).handler(ok.req, ok.res);
+    assert.equal(ok.captured.status, 200);
+    assert.equal(ok.captured.body.ok, true);
+  } finally {
+    d.cleanup();
+  }
+});
+
+// ---- health and the run journal --------------------------------------------
+
+test('the state document reports what is enabled, degraded, and missing', async () => {
+  const d = deps();
+  try {
+    d.health = createHealth({ host: { optionalMissing: ['webServer'] } });
+    d.health.enabled('tools');
+    d.health.degraded('webSearch', 'no search provider answered');
+    d.health.disable('command', 'no commands registry');
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const ok = exchange();
+    await server.routes.get(`${ROUTE_PREFIX}/state`).handler(ok.req, ok.res);
+    const health = ok.captured.body.health;
+    assert.deepEqual(health.missingDependencies, ['webServer']);
+    assert.deepEqual(
+      health.degraded.map((entry) => [entry.name, entry.reason]),
+      [['webSearch', 'no search provider answered']],
+    );
+    assert.deepEqual(
+      health.disabled.map((entry) => entry.name),
+      ['command'],
+    );
+    assert.deepEqual(
+      health.subsystems.map((entry) => entry.name).sort(),
+      // `controlPanel` is added by the installer itself when the routes mount.
+      ['command', 'controlPanel', 'tools', 'webSearch'],
+    );
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('a deployment with no health record still serves a complete state document', () => {
+  // The panel must not break on a plugin built without one.
+  const d = deps();
+  try {
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const ok = exchange();
+    return server.routes
+      .get(`${ROUTE_PREFIX}/state`)
+      .handler(ok.req, ok.res)
+      .then(() => {
+        assert.deepEqual(ok.captured.body.health.missingDependencies, []);
+        assert.deepEqual(ok.captured.body.health.subsystems, []);
+      });
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('the tree route carries the run journal, and an empty one when nothing ran', async () => {
+  const d = deps();
+  try {
+    const journal = createRunJournal();
+    journal.begin({ runId: 'r1', sessionId: 's1', task: 'do it', startedAt: 0, units: [{ id: 'a' }] });
+    journal.unitFinished('r1', { id: 'a' }, { id: 'a', ok: true, text: 'done', childId: 'child-1' });
+    d.journal = journal;
+    const subagents = {
+      listDescendants: async () => [
+        { kind: 'child', id: 'child-1', parentId: 's1', depth: 1, activity: 'running', mode: 'one-shot', hasChildren: false },
+      ],
+    };
+    const server = fakeServer();
+    const { ctx } = fakeContext(server, { services: { subagents } });
+    installControlRoutesDeferred(ctx, d);
+    const ok = exchange({ method: 'GET' });
+    ok.req.url = `${ROUTE_PREFIX}/tree?session=s1`;
+    await server.routes.get(`${ROUTE_PREFIX}/tree`).handler(ok.req, ok.res);
+    const body = ok.captured.body;
+    // The journal knows the unit FINISHED, so the durable `running` claim is overruled.
+    assert.equal(body.nodes[0].activity, 'completed');
+    assert.equal(body.journal.runs.length, 1);
+    assert.equal(body.journal.runs[0].units[0].childId, 'child-1');
+    assert.ok(Array.isArray(body.journal.runs[0].edges));
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('the tree route reports an empty journal when the plugin is tracking nothing', async () => {
+  const d = deps();
+  try {
+    const subagents = { listDescendants: async () => [] };
+    const server = fakeServer();
+    const { ctx } = fakeContext(server, { services: { subagents } });
+    installControlRoutesDeferred(ctx, d);
+    const ok = exchange({ method: 'GET' });
+    ok.req.url = `${ROUTE_PREFIX}/tree?session=s1`;
+    await server.routes.get(`${ROUTE_PREFIX}/tree`).handler(ok.req, ok.res);
+    assert.deepEqual(ok.captured.body.journal, { runs: [] });
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('the locale route accepts the language the browser is showing', async () => {
+  // The host cannot reach the browser-resolved language by any other means, and the
+  // harness never writes it back — so this report is the only way a host-rendered
+  // string (a slash command's palette entry, its replies) can follow the UI.
+  const d = deps();
+  try {
+    const reported = [];
+    d.locale = {
+      language: 'en',
+      source: 'default',
+      report: (value) => {
+        reported.push(value);
+        return true;
+      },
+    };
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const route = server.routes.get(`${ROUTE_PREFIX}/locale`);
+
+    const ok = exchange({ method: 'POST', body: { language: 'zh' } });
+    ok.req.url = `${ROUTE_PREFIX}/locale`;
+    await route.handler(ok.req, ok.res);
+    assert.equal(ok.captured.status, 200);
+    assert.deepEqual(reported, ['zh']);
+
+    const wrongMethod = exchange({ method: 'GET' });
+    wrongMethod.req.url = `${ROUTE_PREFIX}/locale`;
+    await route.handler(wrongMethod.req, wrongMethod.res);
+    assert.equal(wrongMethod.captured.status, 405);
+
+    const empty = exchange({ method: 'POST', body: {} });
+    empty.req.url = `${ROUTE_PREFIX}/locale`;
+    await route.handler(empty.req, empty.res);
+    assert.equal(empty.captured.status, 400);
+    assert.match(String(empty.captured.body.error), /language is required/);
+  } finally {
+    d.cleanup();
+  }
+});
+
+test('a locale report still succeeds when the plugin has no locale reader', async () => {
+  const d = deps();
+  try {
+    const server = fakeServer();
+    const { ctx } = fakeContext(server);
+    installControlRoutesDeferred(ctx, d);
+    const route = server.routes.get(`${ROUTE_PREFIX}/locale`);
+    const ok = exchange({ method: 'POST', body: { language: 'zh' } });
+    ok.req.url = `${ROUTE_PREFIX}/locale`;
+    await route.handler(ok.req, ok.res);
+    // An optimisation that cannot be applied is not an error for the caller.
+    assert.equal(ok.captured.status, 200);
+    assert.equal(ok.captured.body.ok, true);
+  } finally {
+    d.cleanup();
+  }
+});
+

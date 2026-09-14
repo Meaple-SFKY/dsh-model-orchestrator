@@ -13,14 +13,38 @@
       "note": "The shipped host packages report 0.1.5-rc.2 while the CLI reports 0.1.5-rc.1; both are supported."
     }
   ],
-  "requiredServices": ["llm", "subagents", "tools", "systemPrompt"],
+  "requiredServices": [
+    "llm",
+    "subagents",
+    "tools",
+    "systemPrompt"
+  ],
   "requiredServiceMethods": {
-    "llm": ["listProviders", "listModels", "resolveModelInfo", "resolveCallConfig"],
-    "subagents": ["list", "start", "getProvider"],
-    "tools": ["register"],
-    "systemPrompt": ["section"]
+    "llm": [
+      "listProviders",
+      "listModels",
+      "resolveModelInfo",
+      "resolveCallConfig"
+    ],
+    "subagents": [
+      "list",
+      "start",
+      "getProvider"
+    ],
+    "tools": [
+      "register"
+    ],
+    "systemPrompt": [
+      "section"
+    ]
   },
-  "optionalServices": ["workflowEngine", "webServer", "connection", "commands", "web"],
+  "optionalServices": [
+    "workflowEngine",
+    "webServer",
+    "connection",
+    "commands",
+    "web"
+  ],
   "compatibilityBehaviour": {
     "onIncompatibleHost": "refuse-activation",
     "registersNothingWhenIncompatible": true,
@@ -32,6 +56,7 @@
     "The plugin re-checks the host on every activation, so upgrading into an unsupported host is refused rather than run.",
     "`commands` is optional: without it the /model-orchestrator command is not registered and every tool, prompt section, and control route still works.",
     "`web` is optional: without it the Sync action in the model pool reports that it cannot research, and routing is unaffected.",
-    "Run `node scripts/check-compat.mjs` for a standalone host-compatibility report."
+    "Run `node scripts/check-compat.mjs` for a standalone host-compatibility report.",
+    "A subsystem that fails to register is disabled and reported through the health block on the panel and on orchestrate_status; it no longer fails activation, because a failed composition entry disposes the whole harness context."
   ]
 }

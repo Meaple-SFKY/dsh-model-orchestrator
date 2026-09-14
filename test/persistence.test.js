@@ -303,3 +303,56 @@ test('a newer-schema file is not overwritten, even by an ordinary write', () => 
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('the collaboration policies survive a restart, and are clamped on the way in', () => {
+  // These decide how much a run can spend: the handoff size, the sibling-question
+  // budget, and the review rounds. A dropped key here would silently revert to the
+  // default, which is what happened to `decisionCues` once already.
+  const directory = mkdtempSync(join(tmpdir(), 'orch-policies-'));
+  try {
+    const store = new OrchestratorStore(directory);
+    store.update((state) => {
+      state.preferences.handoff = { strategy: 'summary', maxChars: 900, includeStructured: false };
+      state.preferences.questions = { maxPerRun: 2, timeoutMs: 30_000 };
+      state.preferences.review = { maxRounds: 4 };
+    });
+    const reopened = new OrchestratorStore(directory).snapshot().preferences;
+    assert.deepEqual(reopened.handoff, { strategy: 'summary', maxChars: 900, includeStructured: false });
+    assert.deepEqual(reopened.questions, { maxPerRun: 2, timeoutMs: 30_000 });
+    assert.deepEqual(reopened.review, { maxRounds: 4 });
+
+    // A number outside the supported range is clamped, not silently replaced by the
+    // default: the operator asked for something, and the nearest legal value is closer
+    // to their intent than the default is.
+    const clamped = new OrchestratorStore(directory);
+    clamped.update((state) => {
+      state.preferences.handoff = { strategy: 'nonsense', maxChars: 5, includeStructured: 'yes' };
+      state.preferences.questions = { maxPerRun: 999, timeoutMs: 1 };
+      state.preferences.review = { maxRounds: 99 };
+    });
+    const after = clamped.snapshot().preferences;
+    assert.deepEqual(after.handoff, { strategy: 'full', maxChars: 500, includeStructured: true });
+    assert.deepEqual(after.questions, { maxPerRun: 32, timeoutMs: 1_000 });
+    assert.deepEqual(after.review, { maxRounds: 5 });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('a state file written before these policies existed gains the defaults', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'orch-old-state-'));
+  const path = join(directory, 'state.json');
+  try {
+    const legacy = defaultState();
+    delete legacy.preferences.handoff;
+    delete legacy.preferences.questions;
+    delete legacy.preferences.review;
+    writeFileSync(path, `${JSON.stringify(legacy, null, 2)}\n`, 'utf8');
+    const preferences = new OrchestratorStore(directory).snapshot().preferences;
+    assert.deepEqual(preferences.handoff, { strategy: 'full', maxChars: 12_000, includeStructured: true });
+    assert.deepEqual(preferences.questions, { maxPerRun: 4, timeoutMs: 240_000 });
+    assert.deepEqual(preferences.review, { maxRounds: 2 });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

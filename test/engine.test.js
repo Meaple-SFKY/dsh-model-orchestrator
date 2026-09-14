@@ -7,12 +7,13 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Taxonomy } from '../lib/taxonomy.js';
 import { ModelPool, buildProfile } from '../lib/discovery.js';
 import { Orchestrator, planTier } from '../lib/engine.js';
+import { createArtifactWriter } from '../lib/artifacts.js';
 import { OrchestratorStore } from '../lib/persistence.js';
 
 /** Build a fake pool from literal profiles. */
@@ -106,7 +107,7 @@ function makeHost({ profiles, answer } = {}) {
   return { ctx, calls, disposed, subagents };
 }
 
-function makeEngine({ profiles, answer, preferences } = {}) {
+function makeEngine({ profiles, answer, preferences, artifacts } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'orch-engine-'));
   const store = new OrchestratorStore(directory);
   if (preferences !== undefined) {
@@ -121,6 +122,7 @@ function makeEngine({ profiles, answer, preferences } = {}) {
     taxonomy,
     store,
     logger: undefined,
+    ...(artifacts === undefined ? {} : { artifacts }),
   });
   return { engine, host, store, taxonomy, pool, directory, cleanup: () => rmSync(directory, { recursive: true, force: true }) };
 }
@@ -717,7 +719,11 @@ test('an assignment naming a model that is gone is reported, not silently ignore
   }
 });
 
-test("the calling model's own per-unit preference still beats the table", async () => {
+test('the standing table is the FIRST priority, and says so when it overrides the caller', async () => {
+  // Deliberate contract change. The table is a decision the user made once and
+  // expects to hold; a chatty caller must not quietly defeat it. What was missing
+  // before was the attribution, so an overridden preference looked like it had never
+  // been received — now the unit names WHO decided and WHAT was displaced.
   const profiles = [
     profileOf('p1', 'table-pick', { description: 'coding implementation' }),
     profileOf('p1', 'caller-pick', { description: 'coding implementation' }),
@@ -733,12 +739,157 @@ test("the calling model's own per-unit preference still beats the table", async 
         summary: 'implement',
         complexity: 'specialist',
         requirements: [{ capability: 'software.implementation', weight: 1 }],
-        unitModelPreference: [{ capability: 'software.implementation', routes: ['p1/caller-pick'] }],
+        unitModelPreference: [{ capability: 'software.implementation', routes: [{ route: 'p1/caller-pick' }] }],
+      },
+    });
+    assert.equal(plan.units[0].route, 'p1/table-pick', 'the table wins');
+    assert.equal(plan.units[0].decidedBy, 'assignment');
+    assert.deepEqual(plan.units[0].overriddenCallerPreference, ['p1/caller-pick']);
+    assert.match(plan.units[0].routeReason, /^assigned: software\.implementation/);
+    assert.match(plan.units[0].routeReason, /overrode the caller's unitModelPreference/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a caller preference still decides when the table does not cover the capability', async () => {
+  const profiles = [
+    profileOf('p1', 'table-pick', { description: 'coding implementation' }),
+    profileOf('p1', 'caller-pick', { description: 'coding implementation' }),
+  ];
+  const { engine, cleanup } = makeEngine({
+    profiles,
+    preferences: { capabilityAssignments: { 'software.implementation': { models: ['table-pick'], family: false } } },
+  });
+  try {
+    const plan = await engine.plan({
+      task: 'Review the parser.',
+      analysis: {
+        summary: 'review',
+        complexity: 'specialist',
+        requirements: [{ capability: 'software.review', weight: 1 }],
+        unitModelPreference: [{ capability: 'software.review', routes: [{ route: 'p1/caller-pick' }] }],
       },
     });
     assert.equal(plan.units[0].route, 'p1/caller-pick');
+    assert.equal(plan.units[0].decidedBy, 'caller-unit');
   } finally {
     cleanup();
+  }
+});
+
+test('a caller-supplied unit honours the standing table too', async () => {
+  // The reported bug: supplied units consulted only the caller's own preference, so
+  // supplying a unit graph silently bypassed the division of labour the user had
+  // configured — the table was honoured for derived units and ignored for these.
+  const profiles = [
+    profileOf('p1', 'table-pick', { description: 'coding implementation' }),
+    profileOf('p1', 'caller-pick', { description: 'coding implementation' }),
+  ];
+  const harness = makeEngine({
+    profiles,
+    preferences: { capabilityAssignments: { 'software.implementation': { models: ['table-pick'], family: false } } },
+  });
+  harness.host.subagents.start = async (provider, request) => {
+    harness.host.calls.push({ provider, request });
+    return {
+      id: `child-${harness.host.calls.length}`,
+      result: Promise.resolve({ output: [{ type: 'text', text: 'ok' }], stopReason: 'completed' }),
+      dispose: async () => {},
+    };
+  };
+  try {
+    const run = await harness.engine.run({
+      task: 'Implement the parser.',
+      analysis: {
+        unitModelPreference: [{ capability: 'software.implementation', routes: [{ route: 'p1/caller-pick' }] }],
+      },
+      units: [{ id: 'u1', capabilityId: 'software.implementation', prompt: 'implement it' }],
+      captain: CAPTAIN,
+    });
+    assert.equal(harness.host.calls[0].request.agentOptions.model, 'table-pick');
+    assert.equal(run.results[0].route, 'p1/table-pick');
+    assert.equal(run.results[0].decidedBy, 'assignment');
+    assert.deepEqual(run.results[0].overriddenCallerPreference, ['p1/caller-pick']);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('an ordered table falls through to its next candidate when a route cannot answer', async () => {
+  const profiles = [
+    profileOf('p1', 'first-pick', { description: 'coding implementation' }),
+    profileOf('p1', 'second-pick', { description: 'coding implementation' }),
+  ];
+  const harness = makeEngine({
+    profiles,
+    preferences: {
+      capabilityAssignments: {
+        'software.implementation': { models: ['first-pick', 'second-pick'], family: false },
+      },
+    },
+  });
+  harness.host.subagents.start = async (provider, request) => {
+    harness.host.calls.push({ provider, request });
+    const failed = request.agentOptions.model === 'first-pick';
+    return {
+      id: `child-${harness.host.calls.length}`,
+      result: Promise.resolve(
+        failed
+          ? { output: [], stopReason: 'error' }
+          : { output: [{ type: 'text', text: 'answered by the fallback' }], stopReason: 'completed' },
+      ),
+      dispose: async () => {},
+    };
+  };
+  try {
+    const run = await harness.engine.run({
+      task: 'Implement the parser.',
+      tier: 'specialist',
+      captain: CAPTAIN,
+    });
+    assert.equal(harness.host.calls.length, 2, 'the second candidate was tried');
+    assert.equal(harness.host.calls[1].request.agentOptions.model, 'second-pick');
+    assert.equal(run.results[0].ok, true);
+    assert.equal(run.results[0].route, 'p1/second-pick');
+    assert.equal(run.results[0].fallbackFrom, 'p1/first-pick');
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('a child that answered and then failed is not retried on another model', async () => {
+  const profiles = [
+    profileOf('p1', 'first-pick', { description: 'coding implementation' }),
+    profileOf('p1', 'second-pick', { description: 'coding implementation' }),
+  ];
+  const harness = makeEngine({
+    profiles,
+    preferences: {
+      capabilityAssignments: {
+        'software.implementation': { models: ['first-pick', 'second-pick'], family: false },
+      },
+    },
+  });
+  harness.host.subagents.start = async (provider, request) => {
+    harness.host.calls.push({ provider, request });
+    return {
+      id: `child-${harness.host.calls.length}`,
+      result: Promise.resolve({ output: [{ type: 'text', text: 'partial answer' }], stopReason: 'max-tokens' }),
+      dispose: async () => {},
+    };
+  };
+  try {
+    const run = await harness.engine.run({
+      task: 'Implement the parser.',
+      tier: 'specialist',
+      captain: CAPTAIN,
+    });
+    assert.equal(harness.host.calls.length, 1, 'a content failure is not a routing failure');
+    assert.equal(run.results[0].ok, false);
+    assert.match(run.results[0].error, /output budget/);
+  } finally {
+    harness.cleanup();
   }
 });
 
@@ -1406,6 +1557,263 @@ test('an unroutable supplied unit says why, and does not claim it was cancelled'
     assert.equal(entry.notStarted, true, 'nothing was cancelled; it was never started');
     assert.equal(entry.cancelled, undefined, 'claiming a cancellation invents an abort');
     assert.equal(host.calls.length, 0, 'and no child was spawned');
+  } finally {
+    cleanup();
+  }
+});
+
+// ---- result readability: duration, failure reason, artifacts ---------------
+
+test('a run reports how long it actually took, and so does each unit', async () => {
+  // `elapsedMs` was computed from a `startedAt` captured while the run document was
+  // being assembled — after every child had finished — so it was always ~0.
+  const profiles = [profileOf('p1', 'm1', { description: 'coding implementation' })];
+  const harness = makeEngine({ profiles });
+  harness.host.subagents.start = async (provider, request) => {
+    harness.host.calls.push({ provider, request });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    return {
+      id: 'child-slow',
+      result: Promise.resolve({ output: [{ type: 'text', text: 'the implementation' }], stopReason: 'completed' }),
+      dispose: async () => {},
+    };
+  };
+  try {
+    const run = await harness.engine.run({
+      task: 'Implement the parser.',
+      tier: 'specialist',
+      captain: CAPTAIN,
+    });
+    assert.ok(run.elapsedMs >= 30, `the run must report its real duration, got ${run.elapsedMs}`);
+    assert.ok(
+      run.results[0].elapsedMs >= 30,
+      `the unit must report its own duration, got ${run.results[0].elapsedMs}`,
+    );
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('a child that fails without a message still reports why', async () => {
+  // A one-shot child that stopped with only a stop reason produced a unit result with
+  // `ok: false` and an ABSENT `error`, so the captain could see that something failed
+  // but not what.
+  const profiles = [profileOf('p1', 'm1', { description: 'coding implementation' })];
+  const harness = makeEngine({ profiles });
+  harness.host.subagents.start = async (provider, request) => {
+    harness.host.calls.push({ provider, request });
+    return {
+      id: 'child-silent',
+      result: Promise.resolve({ output: [], stopReason: 'max-tokens' }),
+      dispose: async () => {},
+    };
+  };
+  try {
+    const run = await harness.engine.run({
+      task: 'Implement the parser.',
+      tier: 'specialist',
+      captain: CAPTAIN,
+    });
+    const unit = run.results[0];
+    assert.equal(unit.ok, false);
+    assert.equal(unit.stopReason, 'max-tokens');
+    assert.ok(typeof unit.error === 'string' && unit.error.length > 0, 'error must not be empty');
+    assert.match(unit.error, /output budget/);
+    assert.match(unit.error, /returned no message/);
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('every unit answer is written to disk and the inline copy is bounded', async () => {
+  const profiles = [
+    profileOf('p1', 'm1', { description: 'coding implementation' }),
+    profileOf('p1', 'm2', { description: 'data analysis' }),
+  ];
+  const long = 'x'.repeat(12_000);
+  const directory = mkdtempSync(join(tmpdir(), 'orch-artifacts-'));
+  const harness = makeEngine({
+    profiles,
+    artifacts: createArtifactWriter({ fallbackDir: directory }),
+  });
+  harness.host.subagents.start = async (provider, request) => {
+    harness.host.calls.push({ provider, request });
+    return {
+      id: 'child-long',
+      result: Promise.resolve({ output: [{ type: 'text', text: long }], stopReason: 'completed' }),
+      dispose: async () => {},
+    };
+  };
+  try {
+    const run = await harness.engine.run({
+      task: 'Implement the parser.',
+      tier: 'specialist',
+      captain: CAPTAIN,
+    });
+    assert.ok(run.artifacts.count >= 1, 'at least one artifact must exist');
+    assert.ok(run.artifacts.index.startsWith(directory), 'the index sits in the artifact root');
+    const unit = run.results[0];
+    assert.equal(unit.textTruncated, true);
+    assert.ok(unit.elidedChars > 0);
+    assert.ok(unit.artifact.path.startsWith(directory));
+    // The file holds the FULL answer; the result holds a bounded copy that says where.
+    const onDisk = readFileSync(unit.artifact.path, 'utf8');
+    assert.ok(onDisk.includes(long), 'the artifact carries the complete answer');
+    assert.ok(unit.text.length < long.length);
+    assert.match(unit.text, /read the full answer at/);
+  } finally {
+    harness.cleanup();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('a failing artifact writer degrades to no artifacts and never fails the run', async () => {
+  const profiles = [profileOf('p1', 'm1', { description: 'coding implementation' })];
+  const harness = makeEngine({
+    profiles,
+    answer: () => 'the implementation',
+    artifacts: {
+      writeRun: () => {
+        throw new Error('read-only workspace');
+      },
+    },
+  });
+  try {
+    const run = await harness.engine.run({
+      task: 'Implement the parser.',
+      tier: 'specialist',
+      captain: CAPTAIN,
+    });
+    assert.equal(run.ok === undefined, true, 'the run document is returned as usual');
+    assert.equal(run.artifacts.count, 0);
+    assert.equal(run.results.length, 1);
+    assert.equal(run.results[0].ok, true);
+    assert.ok(run.aggregated.includes('the implementation'));
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('a unit that declared a dependency receives its complete answer', async () => {
+  // The dependent unit used to receive the same truncated preview as everyone else,
+  // which is exactly the part that loses the reasoning it depends on.
+  const profiles = [profileOf('p1', 'm1', { description: 'coding implementation' })];
+  const upstream = `UPSTREAM-${'y'.repeat(3000)}-END`;
+  const harness = makeEngine({ profiles });
+  harness.host.subagents.start = async (provider, request) => {
+    harness.host.calls.push({ provider, request });
+    const text = harness.host.calls.length === 1 ? upstream : 'second';
+    return {
+      id: `child-${harness.host.calls.length}`,
+      result: Promise.resolve({ output: [{ type: 'text', text }], stopReason: 'completed' }),
+      dispose: async () => {},
+    };
+  };
+  try {
+    await harness.engine.run({
+      task: 'Do the first stage, then the second.',
+      captain: CAPTAIN,
+      units: [
+        { id: 'first', capabilityId: 'software.implementation', prompt: 'stage one' },
+        { id: 'second', capabilityId: 'software.review', prompt: 'stage two', dependsOn: ['first'] },
+      ],
+    });
+    const second = harness.host.calls[1].request.prompt[0].text;
+    assert.ok(second.includes('-END'), 'the dependent unit receives the whole upstream answer');
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('the handoff strategy can be narrowed to a summary with a length cap', async () => {
+  const profiles = [profileOf('p1', 'm1', { description: 'coding implementation' })];
+  const upstream = `UPSTREAM-${'y'.repeat(3000)}-END`;
+  const harness = makeEngine({
+    profiles,
+    preferences: { handoff: { strategy: 'summary', maxChars: 500, includeStructured: false } },
+  });
+  harness.host.subagents.start = async (provider, request) => {
+    harness.host.calls.push({ provider, request });
+    const text = harness.host.calls.length === 1 ? upstream : 'second';
+    return {
+      id: `child-${harness.host.calls.length}`,
+      result: Promise.resolve({ output: [{ type: 'text', text }], stopReason: 'completed' }),
+      dispose: async () => {},
+    };
+  };
+  try {
+    await harness.engine.run({
+      task: 'Do the first stage, then the second.',
+      captain: CAPTAIN,
+      units: [
+        { id: 'first', capabilityId: 'software.implementation', prompt: 'stage one' },
+        { id: 'second', capabilityId: 'software.review', prompt: 'stage two', dependsOn: ['first'] },
+      ],
+    });
+    const second = harness.host.calls[1].request.prompt[0].text;
+    assert.ok(!second.includes('-END'), 'the summary strategy does not hand over the full answer');
+    assert.ok(second.includes('UPSTREAM-'), 'but the bounded preview still travels');
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test('a table that lands on the route the caller named displaces nothing', async () => {
+  // Live verification caught this: the table and the caller's preference agreed, and
+  // the result still claimed to have overridden the caller — a false accusation that
+  // makes every table-driven unit look like a conflict.
+  const profiles = [profileOf('p1', 'same-pick', { description: 'coding implementation' })];
+  const { engine, cleanup } = makeEngine({
+    profiles,
+    preferences: {
+      capabilityAssignments: { 'software.implementation': { models: ['same-pick'], family: false } },
+    },
+  });
+  try {
+    const plan = await engine.plan({
+      task: 'Implement the parser.',
+      analysis: {
+        summary: 'implement',
+        complexity: 'specialist',
+        requirements: [{ capability: 'software.implementation', weight: 1 }],
+        unitModelPreference: [{ capability: 'software.implementation', routes: [{ route: 'p1/same-pick' }] }],
+      },
+    });
+    assert.equal(plan.units[0].route, 'p1/same-pick');
+    assert.equal(plan.units[0].decidedBy, 'assignment', 'the table still decided');
+    assert.equal(
+      plan.units[0].overriddenCallerPreference,
+      undefined,
+      'but nothing was displaced, so nothing may be reported as displaced',
+    );
+    assert.doesNotMatch(plan.units[0].routeReason, /overrode/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a table that lands elsewhere still names what it displaced', async () => {
+  const profiles = [
+    profileOf('p1', 'table-pick', { description: 'coding implementation' }),
+    profileOf('p1', 'caller-pick', { description: 'coding implementation' }),
+  ];
+  const { engine, cleanup } = makeEngine({
+    profiles,
+    preferences: { capabilityAssignments: { 'software.implementation': { models: ['table-pick'], family: false } } },
+  });
+  try {
+    const plan = await engine.plan({
+      task: 'Implement the parser.',
+      analysis: {
+        summary: 'implement',
+        complexity: 'specialist',
+        requirements: [{ capability: 'software.implementation', weight: 1 }],
+        unitModelPreference: [{ capability: 'software.implementation', routes: [{ route: 'p1/caller-pick' }] }],
+      },
+    });
+    assert.equal(plan.units[0].route, 'p1/table-pick');
+    assert.deepEqual(plan.units[0].overriddenCallerPreference, ['p1/caller-pick']);
+    assert.match(plan.units[0].routeReason, /overrode the caller's unitModelPreference/);
   } finally {
     cleanup();
   }

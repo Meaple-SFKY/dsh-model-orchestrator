@@ -69,11 +69,21 @@ So the orchestrator works with that seam rather than against it:
 dsh plugin --profile <name> add github:Meaple-SFKY/dsh-model-orchestrator
 ```
 
-Or from a local checkout:
+Or from a local checkout, **as a tarball**:
 
 ```sh
-dsh plugin --profile web add /path/to/dsh-model-orchestrator
+npm pack --pack-destination /tmp
+dsh plugin --profile web add /tmp/dsh-model-orchestrator-0.3.0.tgz
 ```
+
+Installing the directory itself (`add /path/to/dsh-model-orchestrator`) does **not** work, and
+fails in a way that looks like a plugin bug rather than an install problem:
+pnpm records a `link:` dependency, so the plugin's real path stays outside the profile and
+Node's parent-walk never reaches the profile's `node_modules` — where the host packages it
+imports (`@deepseek-ai/dsh-tools`, `@deepseek-ai/dsh-llm`, …) actually live. The load then
+fails with `Cannot find package '@deepseek-ai/dsh-tools'`. A packed tarball is materialized
+inside the profile, so resolution works. It also means the profile holds a **snapshot**: after
+editing the checkout, pack and add again.
 
 Once the package is on npm this shortens to the same thing:
 
@@ -145,17 +155,41 @@ orchestration automatic. Automatic remains the default; this is for when you wan
 guaranteed. `recordInput: false` keeps the task from being logged twice, and the command is
 only registered when the deployment mounts the `commands` service.
 
+**It answers in your language.** The command's replies, its one-line summary and its input
+hint all come from the same locale table the panel uses. The language comes from the durable
+`locale` setting when you have set one — and, when you have not, from the panel telling the
+host which language it is rendering. That second source is not a nicety: the harness resolves
+a language as "explicit setting → browser detection → en" and never writes the browser-derived
+value back, so without it the host cannot know the UI language at all in the default case, and
+these strings stayed English inside a Chinese UI. The plugin never writes the setting, only
+reads it, and an explicit choice always outranks the browser's.
+
+The harness renders a *third-party* command's description and hint verbatim — it only
+translates its own built-in commands — so the plugin re-registers the command when the
+language changes; that re-registration is the only way its palette entry can follow you. The
+settings page also states the command, its hint and its usage in the panel's own language, so
+the copy is discoverable without opening the palette.
+
 ### Tools
 
 | Tool | Purpose |
 |---|---|
 | `orchestrate_run` | Analyze, match, delegate every unit, and return all results. The main entry point. |
 | `orchestrate_dispatch` | Delegate one self-contained unit to one model. Cheaper and more predictable. |
+| `orchestrate_ask` | Ask a **completed** unit of the same run a follow-up question and get its answer, on the route that did the work. |
 | `orchestrate_plan` | Show the routing decision **without** executing it. |
 | `orchestrate_models` | The models that actually exist right now, with the evidence behind each profile. |
 | `orchestrate_capabilities` | The capability vocabulary, including anything learned. |
-| `orchestrate_configure` | Change preferences. |
-| `orchestrate_status` | Current mode, pool, mappings, the assignment table and the researched facts, and which cue groups are still built-in. |
+| `orchestrate_configure` | Change preferences: mode, cost, parallelism, routes, reasoning levels, the capability assignment table, dependency handoff, and the sibling-question and review bounds. |
+| `orchestrate_status` | Current mode, pool, mappings, the assignment table, the researched facts, which cue groups are still built-in, and the health report. |
+
+Every tool that takes a caller's analysis says **where each field belongs**, and enforces it
+rather than trusting it: a value placed at the top level is reported back in
+`misplacedArguments` with the parameter path to use instead (a route belongs in
+`units[].route` or `analysis.modelPreference[].route`), an unrecognised argument comes back in
+`unusedArguments`, and a top-level `modelPreference`/`unitModelPreference` is folded into
+`analysis` and named in `foldedIntoAnalysis`. A silently ignored route is not possible — but
+the report has to be read, which is why the descriptions name it.
 
 ## Which models are in the pool
 
@@ -298,15 +332,23 @@ Two things this deliberately is not:
 - **It is not a lock.** The table supplies the preference order; the matcher still reorders
   eligible candidates and still enforces hard requirements and the deployment's route policy.
   A table entry can never revive a route those excluded.
-- **It is not the last word on a unit.** The calling model can still beat it for one unit with
-  `analysis.unitModelPreference`, because that is the more specific statement about that unit.
-  The full ladder is: the calling model's per-unit choice → this table → the calling model's
-  task-level preference → the measured ranking.
+- **It is not a lock, but it IS the first priority.** A capability you have configured follows
+  the table; the calling model's own preference is what has to give way, and the unit result
+  says so (`decidedBy: "assignment"`, plus `overriddenCallerPreference` naming what was
+  displaced). The full ladder is: this table → the calling model's per-unit choice → the
+  calling model's task-level preference → the measured ranking. This reverses the earlier
+  order on purpose — a decision you made once should not be quietly overruled by whoever
+  happens to be calling.
 
   Both preferences live **inside `analysis`** — `modelPreference` for the task, `unitModelPreference`
   for one unit. A copy placed at the top level of the call is folded in and reported as
   `foldedIntoAnalysis`, because that mistake once sent a seven-unit plan to one model in silence; any
-  *other* argument the tool does not recognise is reported as `unusedArguments` rather than dropped.
+  *other* argument the tool does not recognise is reported as `unusedArguments`, and a *known*
+  argument in the wrong place gets a `misplacedArguments` entry naming where it belongs.
+
+  Caller-supplied `units` are routed by the same ladder, table included. They used to consult
+  only the caller's own preference, so supplying a unit graph silently bypassed the division of
+  labour you had configured.
 
 Capabilities in one cluster are split into separate units when their assignments differ. That
 is what makes "architecture to GPT, implementation to DeepSeek" real: both live in the
@@ -406,6 +448,20 @@ precise reason naming the requirement and what was found, and throws so the row 
 loudly. It never degrades silently. Because the gate runs on every activation, upgrading
 into an unsupported host is refused rather than run.
 
+**Everything after the gate is isolated.** The gate is meant to be loud — an incompatible host
+is a decision, not an accident. But every subsystem *registration* used to be unwrapped too,
+and a failed composition entry is not a local failure: the harness's boot audit treats it as
+fatal and disposes the whole context, so one bad tool schema took unrelated plugins down with
+it. Each subsystem now registers inside a guard. A failure disables **that** subsystem,
+records why, and leaves everything else working.
+
+That is what the **health** line reports, on the settings page and on `orchestrate_status`:
+each subsystem as `enabled`, `degraded` or `disabled` with the reason, plus the optional
+services this deployment does not provide. A control panel that did not mount, or a Sync that
+can never work because there is no search provider, is now a visible state instead of a log
+line. Optional services are re-checked on every read, so one that mounts late is not reported
+as permanently absent.
+
 Run the standalone check any time:
 
 ```sh
@@ -504,32 +560,65 @@ short slide-and-fade instead of swapping the layout instantly. The transition is
 same way the buttons do (`自动` / `引导`, never a mix of the translated label and the English
 mode name).
 
-**Orchestrator** is a Conversation view, a sibling of `Chat` and `Trajectory`:
+**Orchestrator** is a Conversation view, a sibling of `Chat` and `Trajectory`. It is the
+board for the session you are looking at: a **left-to-right dependency graph** of how the
+task was delegated, from the task itself, through the captain, to every unit the orchestrator
+dispatched — including the sub-agents a unit dispatched in turn — and on to the final output,
+which is always the rightmost node.
 
-![The Orchestrator board showing two delegations on different models](docs/board-two-models.png)
- It is the
-board for the session you are looking at, and it has three parts:
+- **Layout** — one column per dependency depth, so the direction of reading is the direction
+  of the work. Edges are routed as curves whose control points stay inside the gap between
+  columns, so a wire never crosses a node box, and edges that share a source or target are
+  spread across lanes so they do not overlap each other.
+- **Six edge kinds**, each drawn differently and all listed in the legend: **task** (the task
+  to what it started), **dispatch** (who delegated to whom), **dependency** (the strongest
+  line: this unit had to wait for that one), **question** (dotted — one unit asked a finished
+  sibling something), **review** (its own colour, labelled with the round and the verdict),
+  and **output** (a settled unit feeding the final answer). A wire touching something that is
+  running flows.
+- **Five node kinds**, all in the legend: the task, the captain, a routed unit, a session the
+  harness started on its own (a **native delegation** — the orchestrator chose no model for
+  it), and the final output.
+- **Lifecycle, in full** — `waiting` (and it names who it is waiting for), `not started`,
+  `running`, `completed`, `failed`, and `unknown`. Only a routed delegation shows a model:
+  the route comes from the unit's own record, not from an inference about the label.
+- **Honest about what it does not know.** The harness's listing reports whether a session
+  *record* is resident, which is not the same as an agent running it. So the plugin's own
+  journal outranks it — a unit the orchestrator finished reports `completed` even while the
+  durable record still says `running` — and anything else that keeps claiming to run for more
+  than half an hour becomes `unknown`, with the reason in its tooltip. It will not show
+  "running" forever for a host that no longer runs the session.
+- **Interaction** — drag a node and its wires follow it; hover a node or a wire and everything
+  unrelated dims; every wire has a wide invisible hit area, so hovering it highlights the two
+  nodes it connects and shows the kinds of both ends.
+- **Detail per node** — capability, route and who decided it, review rounds, elapsed time,
+  how many questions it asked and answered, the path of its written answer, a summary, and an
+  error when it failed. Long values are truncated in the box with the full text in the
+  tooltip, and labels wrap inside their box in both languages.
+- **A top bar** with the run's numbers: delegated, running, completed, failed, questions and
+  reviews, plus how long the run has taken. Below it, a grouped legend covering every node
+  kind, every lifecycle status and every edge style — built from the same vocabulary the
+  renderer draws, so it cannot drift.
 
-- **Delegation graph** — every subagent of this session, indented under the agent that
-  started it, with its mode (`one-shot` / `continuable`) and live activity. A delegation the
-  orchestrator routed shows the model it selected; one DSH started by itself is marked a
-  **native delegation**, because the orchestrator never chose a model for it. Topology is read
-  from the harness's own durable session tree (`ctx.subagents.listDescendants`), refreshed
-  every few seconds, so it shows the delegations that actually exist rather than a mirrored
-  copy. The route comes from the delegation's own label — the host's listing reports no model —
-  so both `orchestrate_run` and `orchestrate_dispatch` write `<name> via <route>`.
-- **Stats** — how many delegations there are, how many are running, and how many branches.
-- **Routing capacity** — the current mode, live pool size, in-flight delegations, and the
-  capability count.
+The graph joins two sources. The **harness session tree** (`ctx.subagents.listDescendants`)
+is the real topology — one node per durable session, one edge per reported parent — and the
+plugin's **run journal** adds what the harness never knew: which capability a unit covered,
+which route it ran on, what it produced and where that was written, who reviewed it, what was
+asked of whom, and the dependency edges between units. Neither alone can draw this graph.
 
 There is deliberately no ambient strip above the composer: the board is where delegated
 work is inspected, and a strip would both duplicate it and crowd the composer.
 
-Both follow the harness language setting: every user-facing string lives in the plugin's
-`modelOrchestrator` locale namespace (`lib/locales.js`, mirrored inside the self-contained
-client bundle), covering both shipped locales. Strings a **model** reads — tool
-descriptions, parameter schemas, the routing prompt section, personas — are deliberately
-English and do not follow the UI language.
+Both the panel and the slash command follow the harness language setting: every user-facing
+string lives in the plugin's `modelOrchestrator` locale namespace (`lib/locales.js`, mirrored
+inside the self-contained client bundle), covering both shipped locales. Strings a **model**
+reads — tool descriptions, parameter schemas, the routing prompt section, personas — are
+deliberately English and do not follow the UI language.
+
+The settings page also carries a **health** line: which subsystems are active, which are
+degraded and why, which are disabled and why, and which optional services this deployment
+does not provide. A panel that did not mount, or a Sync that can never work, is visible
+there instead of being a log line nobody reads.
 
 Capability names follow the same split: the taxonomy's labels are model-facing and stay English,
 because they travel into child prompts and delegation labels, while the panel translates them
@@ -572,6 +661,61 @@ own tool-call ceiling does, so a long plan returns the units that finished, mark
 unfinished, and sets `budgetExhausted`. Without it, the ceiling is the only limit and it costs the
 whole run. Pass a smaller `budgetMs` if your own tool-call limit is shorter than the default.
 
+### What a unit receives from the units it depends on
+
+A unit that declared a dependency receives that dependency's **complete answer**, plus its
+structured result when there is one. This is what depending on something means — the preview
+is exactly the part that loses the reasoning the dependent unit needs. Every other unit still
+receives a bounded digest of recent completions, never a sibling's full text, because the
+whole reason it is independent is that it does not need one.
+
+Three settings change it: `handoff.strategy` (`full`, the default, or `summary`),
+`handoff.maxChars` (500–200 000) and `handoff.includeStructured`.
+
+### Every answer is written down
+
+A run's result can easily be larger than the harness will carry inline, and when it is, the
+harness replaces it with a bounded preview and a locator — which used to mean the calling
+model was told the result "was stored somewhere" and could not read a single unit's answer.
+
+So each unit's complete answer is written to a file before the result is bounded: a Markdown
+document per unit inside a run directory, plus an `index.md` naming every unit, its route, its
+outcome and its byte count. The result carries `results[].artifact.path` and the run-level
+`artifacts.dir` / `artifacts.index`; an inline answer that was cut says how much was elided and
+where the rest is (`textTruncated`, `elidedChars`). The directory is `.dsh-orchestrator/artifacts`
+inside the calling session's working directory when one is known, and the plugin's own state
+directory otherwise. Writing is best-effort: a read-only workspace degrades to "this run has no
+artifacts", reported in `artifacts.problems`, and the run is unaffected.
+
+### Asking a unit that already answered
+
+`orchestrate_ask` sends a follow-up question to a **completed** unit of the same run and
+returns its answer, on the route that did the work. Every unit is given its run id and the
+list of units it may question in its own prompt, so the capability is discoverable rather than
+theoretical.
+
+A unit that is still **running** refuses outright — it has no answer yet, and queueing the
+question would either deadlock the asker or duplicate the work — and the refusal names the
+units that *can* answer. Questions are capped per run and per asking unit
+(`questions.maxPerRun`, default 4) and by a timeout (`questions.timeoutMs`, default 4
+minutes). The run result reports every question and answer.
+
+### The review loop
+
+A unit that declares `reviews: [ids]` is a **reviewer**. It is scheduled after the units it
+reviews and receives their complete answers, and it is expected to answer with:
+
+```json
+{ "verdict": "approve", "objections": [{ "unit": "impl", "issue": "no tests were mentioned" }] }
+```
+
+A rejection sends each objected unit back with the objection attached — so it revises rather
+than starting over — and then the reviewer judges again. The loop is bounded by
+`review.maxRounds` (default 2). Two rules make it safe rather than merely finite: a verdict
+that cannot be read is recorded as **`unknown`** and the loop **stops**, because an unreadable
+answer is not approval; and a child that answered and then failed is never re-run on another
+model, because that is a content problem and paying a second model would not fix it.
+
 ## Who decides which model
 
 Selection is a division of labour, because neither side can do it alone.
@@ -604,16 +748,28 @@ ignored is otherwise indistinguishable from a bug:
 
 | Rung | Who set it |
 |---|---|
-| `analysis.unitModelPreference` | The calling model, about **one unit** — the most specific statement there is |
-| **Capability assignments** | The **user's** standing policy, set once in the panel |
+| **Capability assignments** | The **user's** standing policy, set once in the panel — the **first** priority |
+| `analysis.unitModelPreference` | The calling model, about **one unit** |
 | `analysis.modelPreference` | The calling model, about the **task** |
 | The measured ranking | The plugin, from host facts |
 
-So a task-level preference does **not** overrule a table the user configured — otherwise any
-chatty caller would quietly defeat it — while a per-unit preference still does, which is the way
-to override the table for one unit. The tool description tells the calling model this explicitly,
-so it reaches for its own model knowledge rather than trusting a route id it cannot interpret,
-and so it understands which rung it is standing on.
+A capability the user has configured **always follows the table**. That is a deliberate
+reversal of the earlier ladder, where a per-unit preference from the caller outranked it: a
+table is a decision the user made once and expects to hold, and a chatty caller must not
+quietly defeat it. The reversal is not silent — see the next paragraph — and the table is
+consulted for **caller-supplied units too**, which it previously was not: supplying a unit
+graph used to bypass the division of labour entirely.
+
+**Who decided is in the result.** Every unit carries `decidedBy` — `assignment`,
+`caller-unit`, `caller-task`, `caller-pin` or `measured` — and when the table displaced a
+caller's preference the unit also carries `overriddenCallerPreference`, naming exactly what
+was displaced. `routeReason` says the same thing in prose, so "why is this unit on that
+model" is answerable from the run itself rather than by inference.
+
+**An ordered table falls through.** A capability may name several models in priority order,
+and a route that cannot answer falls through to the next candidate. Only when the child
+produced *nothing*, though: a child that answered and then failed is a content problem, and
+paying a second model for it would not fix it.
 
 ### Judgements belong to the model
 
@@ -674,6 +830,19 @@ unaffected — the service is optional, like the command registry. It searches t
 through the harness's own web service, then one model call
 reconciles the sources into facts — the model judges the sources, the plugin decides what it is
 allowed to see, and nothing is stored that the validator cannot check.
+
+**A sweep is grouped by provider, and one failure costs one provider.** It used to be a single
+call over the whole pool, so one provider that could not be reached — or one reconciling answer
+that came back as prose — discarded every other provider's facts and reported one error with no
+results at all. Each provider is now researched on its own and its facts are written as soon as
+they land, so the sweep reports itself as `done`, `partial` or `error` with a per-provider
+outcome; a reconciling route that never answered is retried on the next candidate route first.
+
+**A failure says what it saw.** `the research answer contained no JSON object` was the entire
+diagnosis, from which nothing can be concluded: not whether the model answered prose, answered
+nothing, or wrapped its JSON in a way the parser missed. The answer's length, its opening text,
+whether a fenced block was present, the reconciling route and its chunk count now travel with
+the failure as `sync.detail`, and the message itself names them.
 
 | | |
 |---|---|
@@ -766,7 +935,7 @@ pgrep -fa 'dsh --profile'
 ## Development
 
 ```sh
-node --test "test/*.test.js"   # 293 tests, no host required
+node --test "test/*.test.js"   # 408 checks, no host required
 node scripts/check-compat.mjs  # host compatibility report
 ```
 
@@ -803,7 +972,12 @@ lib/
   sync.js              one research sweep at a time, and its status
   model-identity.js    model identity and family keys: which live route a stored intent means
   assignments.js       the standing division of labour: normalise, resolve, report drift
-  agent-tree.js     subagent relationship tree for the board (pure, testable)
+  agent-tree.js     subagent relationship tree and lifecycle truth for the board (pure, testable)
+  runs.js           the run journal: sibling questions, review rounds, and the board's edges
+  artifacts.js      each unit's answer on disk, plus the run index, with degraded fallback
+  arguments.js      how a tool call's arguments are read, and where a misplaced one belongs
+  health.js         which subsystem is enabled, degraded or disabled, and why
+  host-locale.js    the host half's view of the UI language (read-only, from `settings`)
   route-policy.js   narrows discovery to the routes the deployment offers
   prompt.js         the routing-policy system prompt section
   client.js         client bundle: settings page + the Orchestrator board

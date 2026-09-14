@@ -11,3 +11,6 @@ tmp/
 .DS_Store
 *.log
 coverage/
+
+# Python bytecode from scripts/ helpers run during maintenance.
+__pycache__/

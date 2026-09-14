@@ -144,7 +144,13 @@ test('every tool compiles, executes, and returns lossless JSON', async (t) => {
   if (install === undefined) return t.skip('no DSH installation is present');
   const h = await harness(install);
   try {
-    assert.equal(h.registered.length, 7, 'every declared tool must register');
+    // Derived from the declaration, so adding a tool cannot leave this stale.
+    const { TOOL_NAMES } = await import('../lib/schemas.js');
+    assert.equal(
+      h.registered.length,
+      Object.keys(TOOL_NAMES).length,
+      'every declared tool must register',
+    );
     for (const definition of h.registered) {
       // A missing `output.render` only surfaces at call time, so assert it here.
       assert.equal(
