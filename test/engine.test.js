@@ -1322,3 +1322,91 @@ test('refilterPool re-narrows the pool without re-discovering it', async () => {
     cleanup();
   }
 });
+
+test('a caller-supplied unit that names only a route runs on that route', async () => {
+  // Reproduced from a real session: the caller supplied four units, each naming a route
+  // through `route` and no `provider`/`model`. `route` was copied onto the unit and never
+  // resolved into the pair a dispatch needs, so every unit hit the dispatch guard with no
+  // provider and came back as `error: "supplied by the caller"` and `cancelled: true`.
+  const profiles = [
+    profileOf('p1', 'm1', { description: 'coding implementation' }),
+    profileOf('p1', 'm2', { description: 'coding implementation' }),
+  ];
+  const { engine, host, cleanup } = makeEngine({ profiles });
+  try {
+    const run = await engine.run({
+      task: 'Two pinned units.',
+      captain: CAPTAIN,
+      units: [{ id: 'u1', capabilityId: 'software.implementation', prompt: 'Do it.', route: 'p1/m2' }],
+    });
+    assert.equal(run.results.length, 1);
+    assert.equal(run.results[0].ok, true, `expected success, got ${run.results[0].error}`);
+    assert.equal(run.results[0].route, 'p1/m2');
+    assert.equal(host.calls.length, 1);
+    assert.equal(host.calls[0].request.agentOptions.model, 'm2', 'the named route must be dispatched');
+  } finally {
+    cleanup();
+  }
+});
+
+test('a supplied unit with no route is routed by the capability it names', async () => {
+  const profiles = [profileOf('p1', 'm1', { description: 'coding implementation' })];
+  const { engine, host, cleanup } = makeEngine({ profiles });
+  try {
+    const run = await engine.run({
+      task: 'One unpinned unit.',
+      captain: CAPTAIN,
+      units: [{ id: 'u1', capabilityId: 'software.implementation', prompt: 'Do it.' }],
+    });
+    assert.equal(run.results[0].ok, true, `expected success, got ${run.results[0].error}`);
+    assert.equal(run.results[0].route, 'p1/m1', 'the orchestrator decides when no route is named');
+    assert.equal(host.calls.length, 1);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a supplied route that is not in the live pool degrades to capability routing', async () => {
+  // The pool changes under a session — a deployment editing its provider's models is how
+  // this was reported — so a stale name must not cost the whole unit.
+  const profiles = [profileOf('p1', 'm1', { description: 'coding implementation' })];
+  const { engine, cleanup } = makeEngine({ profiles });
+  try {
+    const run = await engine.run({
+      task: 'One stale pin.',
+      captain: CAPTAIN,
+      units: [
+        { id: 'u1', capabilityId: 'software.implementation', prompt: 'Do it.', route: 'p1/gone' },
+      ],
+    });
+    assert.equal(run.results[0].ok, true, `expected success, got ${run.results[0].error}`);
+    assert.equal(run.results[0].route, 'p1/m1');
+    assert.equal(run.results[0].routeRequested, 'p1/gone', 'and the name it asked for is reported');
+    assert.match(run.results[0].routeReason, /not in the live pool/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('an unroutable supplied unit says why, and does not claim it was cancelled', async () => {
+  // The old refusal returned `error: unit.routeReason` — for a supplied unit that is the
+  // text "supplied by the caller", which is a reason for the ROUTE, not a failure — and
+  // set `cancelled: true` for a unit that had never been started.
+  const { engine, host, cleanup } = makeEngine({ profiles: [] });
+  try {
+    const run = await engine.run({
+      task: 'No model could serve this.',
+      captain: CAPTAIN,
+      units: [{ id: 'u1', capabilityId: 'software.implementation', prompt: 'Do it.' }],
+    });
+    const [entry] = run.results;
+    assert.equal(entry.ok, false);
+    assert.match(entry.error, /^no route:/, `got: ${entry.error}`);
+    assert.match(entry.error, /pool is empty|no model could serve/);
+    assert.equal(entry.notStarted, true, 'nothing was cancelled; it was never started');
+    assert.equal(entry.cancelled, undefined, 'claiming a cancellation invents an abort');
+    assert.equal(host.calls.length, 0, 'and no child was spawned');
+  } finally {
+    cleanup();
+  }
+});

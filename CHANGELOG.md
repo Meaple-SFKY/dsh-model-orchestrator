@@ -5,6 +5,34 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] — 2026-09-14
+
+### Fixed
+
+- **A caller-supplied unit's `route` was ignored, and an omitted route was never routed — so every
+  caller-supplied unit failed.** Reported from a real session whose caller supplied four units, each
+  naming a route and no `provider`/`model`. The route was copied onto the unit but never resolved
+  into the pair a dispatch needs, so all four reached the dispatch guard with no provider and came
+  back as `error: "supplied by the caller"` and `cancelled: true`. Both behaviours are documented on
+  the `units` parameter — pin a route, or omit it and be routed — and neither existed. A supplied
+  unit now resolves its `route` (or an explicit provider and model) against the live pool, and
+  otherwise is routed by the capability it names, with the caller's per-capability preference
+  honoured. A named route that is no longer in the pool degrades to capability routing and reports
+  `routeRequested`, because the pool changes under a session and a stale name should not cost a unit.
+- **The refusal for an unroutable unit reported a route REASON as its error, and claimed it had been
+  cancelled.** `error` was `unit.routeReason` — for a supplied unit the text `"supplied by the
+  caller"`, which explains the route, not the failure — and `cancelled: true` was set for a unit that
+  had never been started. It now reports `no route: <why>` with `notStarted: true`. Dating from the
+  first release, this is what made a caller read its own rejected graph as the problem.
+
+### Changed
+
+- **The `units` parameter says that a unit's `prompt` should be short.** The run's `task` is added to
+  every unit's prompt already, so repeating it inflates a hand-written JSON argument — and a real
+  call in the same session was rejected by the host as `invalid arguments: "arguments" must be an
+  object` because the payload had been written incorrectly at 5 kB. That rejection is the caller's,
+  not the plugin's; this makes it less likely.
+
 ## [0.2.7] — 2026-09-14
 
 ### Fixed
@@ -736,6 +764,7 @@ Initial release. Generic, domain-agnostic Model Orchestrator for DSH `0.1.5-rc.1
 - Only `spawn` and `fork` subagent providers are consulted; any registered provider that
   advertises the `agentOptions` capability works.
 
+[0.2.8]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/Meaple-SFKY/dsh-model-orchestrator/compare/v0.2.4...v0.2.5

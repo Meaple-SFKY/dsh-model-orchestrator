@@ -560,7 +560,12 @@ predecessors. The run hit the caller's thirty-minute tool-call ceiling and retur
 error with **no results at all**, because a timeout discards everything rather than what finished.
 The asymmetry decides it — a parallel unit may lose some cross-unit context; a serial run that
 times out loses all of it. A caller that supplies its own `units` keeps full control of the graph
-either way, and its `dependsOn` is never rewritten.
+either way, and its `dependsOn` is never rewritten. Each of those units may pin its own `route`,
+or name none and be routed by the capability it names — and a route that is no longer in the live
+pool degrades to capability routing with `routeRequested` saying which name was asked for, rather
+than losing the unit to a stale one. Keep a supplied unit's `prompt` short: the run's `task` is
+added to every unit's prompt, so repeating it only makes the argument large enough to be written
+incorrectly.
 
 **A run also bounds itself.** `budgetMs` (25 minutes by default) aborts the run before the caller's
 own tool-call ceiling does, so a long plan returns the units that finished, marks the rest as
